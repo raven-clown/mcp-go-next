@@ -26,6 +26,8 @@ type Request struct {
 	Header http.Header
 
 	notifier Notifier
+	// principal is a pointer so servers without auth do not pay for it on every request.
+	principal *Principal
 	// state is a pointer so middleware can copy a Request.
 	state *requestState
 }
