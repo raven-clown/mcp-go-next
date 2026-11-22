@@ -100,7 +100,7 @@ The Phase column points at `docs/plans/roadmap.md`, and the last column cites th
 | ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
 | B1 | 2026-07-28 stateless requests, `_meta` per request | yes | yes | yes | 1 | One code path with no session machinery |
-| B2 | Revisions 2025-11-25 and older | yes | yes | adapter | 2 | Opt-in `legacy` module |
+| B2 | Revisions 2025-11-25 and older | yes | yes | adapter | 1, 2 | Opt-in `legacy` module: handshake and sessions in phase 1, the rest in phase 2 |
 | B3 | `server/discover` | yes | yes | yes | 1 | Answered from the registry snapshot |
 | B4 | Multi round-trip input requests | yes | yes | yes | 1 | Plain function call, `requestState` helpers, replay check in the test kit |
 | B5 | `subscriptions/listen` | yes | unverified | yes | 1 | Bounded broker, a slow listener never blocks requests (mark3labs queue limit) |
@@ -231,7 +231,7 @@ mcpkit shows that conformance alone does not draw users. The focus here is the p
 
 - **Maturity and trust.** go-sdk is official and used by the largest projects. mcp-go-next has no users. Earn it with published conformance, interop and benchmark results on every release, and a first real adopter.
 - **Performance.** The cached list and single-decode design should beat both on servers with many tools, but that is a claim until measured. Earn it with side-by-side benchmarks in phase 3, published even where we lose.
-- **Older revisions.** Both support them in their core. mcp-go-next needs `legacy` (phase 2).
+- **Older revisions.** Both support them in their core. mcp-go-next needs `legacy`: the handshake and sessions in phase 1, the rest in phase 2.
 - **Unverified cells.** Each one gets checked against the source before phase 3, and the matrix is corrected.
 - **Contributors.** One maintainer today. Earn it with labeled issues for every open row and fast reviews.
 
@@ -258,7 +258,7 @@ Phase N ships as v0.N. Separate modules, each with its own `go.mod`, so the core
 | Module | Phase | Purpose |
 |---|---|---|
 | `.../mcp-go-next/auth` | 2 | OAuth 2.1 for servers and clients |
-| `.../mcp-go-next/legacy` | 2 | Revisions 2025-11-25 and older: handshake, sessions, HTTP+SSE, resumability |
+| `.../mcp-go-next/legacy` | 1, 2 | Revisions 2025-11-25 and older: handshake and sessions (1), server-to-client requests, GET stream, HTTP+SSE, resumability (2) |
 | `.../mcp-go-next/ext/tasks` | 4 | Tasks extension |
 | `.../mcp-go-next/ext/skills` | 4 | Skills over MCP |
 | `.../mcp-go-next/ext/apps` | 4 | MCP Apps |
@@ -582,8 +582,8 @@ srv.Mount(gw)
 
 `docs/plans/roadmap.md` maps every matrix row to a phase:
 
-- **Phase 1 (v0.1):** the core, toolsets and list cache, principal and handles, both transports with CORS, a resilient client, the test kit, the cookbook. Every 2026-07-28 core conformance scenario passes.
-- **Phase 2 (v0.2):** `auth` and `legacy`.
+- **Phase 1 (v0.1):** the core, toolsets and list cache, principal and handles, both transports with CORS, the `legacy` initialize handshake for servers and clients, a resilient client, the test kit, the cookbook. Every 2026-07-28 core conformance scenario passes. Servers come first, then the handshake, then clients, so the library is usable early.
+- **Phase 2 (v0.2):** `auth` and the rest of `legacy`.
 - **Phase 3 (v0.3):** `gateway`, interop, side-by-side benchmarks, matrix verification, the coming-from guide.
 - **Phase 4 (v0.4):** extensions, `jsonschema/full`, `otel`, `middleware`, remaining auth.
 - **v1.0:** API freeze, full conformance, tier listing application.
@@ -592,6 +592,6 @@ srv.Mount(gw)
 
 - **The spec moves.** `protocol` is the only place wire shapes live, and the schema comparison test flags drift.
 - **Input-request replay surprises handler authors.** Docs, an example and `mcptest.CheckReplaySafe`.
-- **Few hosts may speak 2026-07-28 yet.** `legacy` in phase 2 covers older clients, and the README says so until then.
+- **Few hosts may speak 2026-07-28 yet.** The `legacy` handshake arrives early in phase 1, right after the transports, and serves 2025-11-25 clients on the same endpoint.
 - **The official SDK has momentum.** The largest projects just finished moving to go-sdk and will not move again without a clear gain. mcp-go-next earns a place by solving the problems they reported, with measurements, and by being easy to try in one tool at a time.
 - **One maintainer and a large scope.** Phases ship on their own, the matrix shows what is not done, and labeled issues let others help.
