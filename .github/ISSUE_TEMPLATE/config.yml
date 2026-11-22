@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/raven-clown/mcp-go-next/discussions
+    about: Ask how to do something or talk an idea through before it becomes an issue.
+  - name: Security problem
+    url: https://github.com/raven-clown/mcp-go-next/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.

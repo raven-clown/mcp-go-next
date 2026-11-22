@@ -29,7 +29,7 @@ See [docs/design.md](docs/design.md) for the design and [docs/plans](docs/plans)
 
 ## Contributing
 
-Anyone can take part. Comments on the design are welcome now through issues and discussions. A contributor guide comes with the first code.
+Anyone can take part. Comments on the design are welcome now through issues and [discussions](https://github.com/raven-clown/mcp-go-next/discussions). See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up and send a pull request, and the [roadmap board](https://github.com/users/raven-clown/projects) for work you can pick up.
 
 ## License
 
