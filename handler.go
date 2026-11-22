@@ -7,6 +7,8 @@ import (
 )
 
 // Handler answers one request. A Server is a Handler, and so is every middleware layer around it.
+// Handle returns a fresh result on every call: the Server writes resultType, _meta and cache
+// fields into it before encoding.
 type Handler interface {
 	Handle(ctx context.Context, req *Request) (protocol.Result, error)
 }

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/raven-clown/mcp-go-next/jsonrpc"
 )
@@ -13,16 +15,33 @@ import (
 // HandleMessage runs one decoded message through h and returns the response to send, or nil for a
 // notification, a response, or a request whose ctx ended before h returned. Transports call it for
 // every message they read. n receives the request's notifications; header is nil off HTTP.
-func HandleMessage(ctx context.Context, h Handler, msg *jsonrpc.Message, n Notifier, header http.Header) *jsonrpc.Message {
+func HandleMessage(ctx context.Context, h Handler, msg *jsonrpc.Message, n Notifier, header http.Header) (resp *jsonrpc.Message) {
 	if msg.Kind() == jsonrpc.KindResponse {
 		return nil
 	}
-	req := &Request{
+	// A Server recovers handler panics itself; this catches the rest, such as a result whose
+	// MarshalJSON panics or a Handler that is not a Server.
+	defer func() {
+		if p := recover(); p != nil {
+			logTo(h, fmt.Errorf("mcp: panic serving %s: %v\n%s", msg.Method, p, debug.Stack()))
+			resp = nil
+			if !msg.ID.IsZero() && ctx.Err() == nil {
+				resp = errorResponse(msg.ID, ErrInternal())
+			}
+		}
+	}()
+	box := &struct {
+		req   Request
+		state requestState
+	}{}
+	req := &box.req
+	*req = Request{
 		ID:       msg.ID,
 		Method:   msg.Method,
 		Params:   msg.Params,
 		Header:   header,
 		notifier: n,
+		state:    &box.state,
 	}
 	if raw, ok := topLevelMember(msg.Params, "_meta"); ok {
 		if err := json.Unmarshal(raw, &req.Meta); err != nil {
@@ -39,17 +58,34 @@ func HandleMessage(ctx context.Context, h Handler, msg *jsonrpc.Message, n Notif
 		return nil
 	}
 	if err != nil {
-		var e *Error
-		if !errors.As(err, &e) {
-			e = ErrInternal()
-		}
-		return errorResponse(msg.ID, e)
+		return errorResponse(msg.ID, asWireError(err))
 	}
 	body, err := json.Marshal(res)
 	if err != nil {
+		logTo(h, fmt.Errorf("mcp: %s: encoding result: %w", msg.Method, err))
 		return errorResponse(msg.ID, ErrInternal())
 	}
 	return &jsonrpc.Message{ID: msg.ID, Result: body}
+}
+
+// asWireError returns the *Error in err, or an internal error when there is none. A typed nil
+// *Error counts as none.
+func asWireError(err error) *Error {
+	var e *Error
+	if errors.As(err, &e) && e != nil {
+		return e
+	}
+	return ErrInternal()
+}
+
+type errorLogger interface {
+	logError(error)
+}
+
+func logTo(h Handler, err error) {
+	if l, ok := h.(errorLogger); ok {
+		l.logError(err)
+	}
 }
 
 func errorResponse(id jsonrpc.ID, e *Error) *jsonrpc.Message {
@@ -58,8 +94,10 @@ func errorResponse(id jsonrpc.ID, e *Error) *jsonrpc.Message {
 
 // topLevelMember returns the value of key in the JSON object b, without decoding anything else. It
 // runs on every request to find _meta, so it skips values by scanning for their end instead of
-// parsing them. With repeated keys the last one wins, as in encoding/json. It does not check the
-// grammar; a malformed object reports the key as missing.
+// parsing them. Keys match the way encoding/json matches struct fields, without regard to ASCII
+// case and with the last match winning, so it finds the same value DecodeParams would put in a
+// field tagged with key. It does not check the grammar; a malformed object reports the key as
+// missing.
 func topLevelMember(b []byte, key string) ([]byte, bool) {
 	i := skipSpace(b, 0)
 	if i >= len(b) || b[i] != '{' {
@@ -107,14 +145,35 @@ func topLevelMember(b []byte, key string) ([]byte, bool) {
 	}
 }
 
-// keyEquals compares a quoted JSON key with key, decoding escapes only when the key has any.
+// keyEquals compares a quoted JSON key with key, ignoring ASCII case, and decodes escapes only when
+// the key has any. key must be ASCII with no letter whose Unicode case folding goes beyond ASCII,
+// such as k or s, so that this agrees with encoding/json.
 func keyEquals(quoted []byte, key string) bool {
 	inner := quoted[1 : len(quoted)-1]
 	if bytes.IndexByte(inner, '\\') < 0 {
-		return string(inner) == key
+		return asciiEqualFold(inner, key)
 	}
 	var s string
-	return json.Unmarshal(quoted, &s) == nil && s == key
+	return json.Unmarshal(quoted, &s) == nil && asciiEqualFold([]byte(s), key)
+}
+
+func asciiEqualFold(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	for i := range len(b) {
+		x, y := b[i], s[i]
+		if 'A' <= x && x <= 'Z' {
+			x += 'a' - 'A'
+		}
+		if 'A' <= y && y <= 'Z' {
+			y += 'a' - 'A'
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
 }
 
 func skipSpace(b []byte, i int) int {

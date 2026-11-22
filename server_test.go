@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -140,6 +141,21 @@ func TestOtherErrorsBecomeInternal(t *testing.T) {
 	}
 }
 
+func TestHandlerTimeoutIsInternal(t *testing.T) {
+	var logged error
+	s := NewServer(Info{Name: "t", Version: "1"}, WithErrorLog(func(err error) { logged = err }))
+	s.HandleMethod("x.example/slow", HandlerFunc(func(ctx context.Context, req *Request) (protocol.Result, error) {
+		return nil, fmt.Errorf("upstream: %w", context.DeadlineExceeded)
+	}))
+	resp := HandleMessage(context.Background(), s, requestMessage(t, 1, "x.example/slow", `{}`), nil, nil)
+	if resp == nil || resp.Error == nil || resp.Error.Code != -32603 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if logged == nil || !errors.Is(logged, context.DeadlineExceeded) {
+		t.Fatalf("error log = %v", logged)
+	}
+}
+
 func TestMiddlewareOrder(t *testing.T) {
 	var order []string
 	mark := func(name string) Middleware {
@@ -207,6 +223,20 @@ func TestWithCache(t *testing.T) {
 	}
 	if r.TTLMs != 90_000 || r.CacheScope != protocol.CachePublic {
 		t.Fatalf("cache = %+v", r.CacheFields)
+	}
+
+	s.HandleMethod("x.example/own-ttl", HandlerFunc(func(ctx context.Context, req *Request) (protocol.Result, error) {
+		res := &protocol.ListToolsResult{}
+		res.TTLMs = 5000
+		return res, nil
+	}))
+	resp = HandleMessage(context.Background(), s, requestMessage(t, 2, "x.example/own-ttl", `{}`), nil, nil)
+	r = protocol.ListToolsResult{}
+	if err := json.Unmarshal(resp.Result, &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.TTLMs != 5000 || r.CacheScope != protocol.CachePublic {
+		t.Fatalf("a result's own ttlMs was replaced: %+v", r.CacheFields)
 	}
 }
 

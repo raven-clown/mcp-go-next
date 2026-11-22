@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sync"
+	"sync/atomic"
 
 	"github.com/raven-clown/mcp-go-next/jsonrpc"
 	"github.com/raven-clown/mcp-go-next/protocol"
@@ -26,11 +26,18 @@ type Request struct {
 	Header http.Header
 
 	notifier Notifier
-	mu       sync.Mutex
-	done     bool
+	// state is a pointer so middleware can copy a Request.
+	state *requestState
 }
 
-// DecodeParams decodes Params into v. Missing params decode as an empty object.
+type requestState struct {
+	done atomic.Bool
+}
+
+// DecodeParams decodes Params into v with encoding/json, so keys match struct fields without
+// regard to case and the last of a repeated key wins. Req.Meta is read the same way. Middleware
+// that inspects params should decode them here too, rather than with a case-sensitive reader.
+// Missing params decode as an empty object.
 func (r *Request) DecodeParams(v any) error {
 	if len(r.Params) == 0 {
 		return nil
@@ -43,13 +50,11 @@ func (r *Request) DecodeParams(v any) error {
 
 // markDone records that the response is being written. Notifications after this are refused.
 func (r *Request) markDone() {
-	r.mu.Lock()
-	r.done = true
-	r.mu.Unlock()
+	if r.state != nil {
+		r.state.done.Store(true)
+	}
 }
 
 func (r *Request) isDone() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.done
+	return r.state != nil && r.state.done.Load()
 }

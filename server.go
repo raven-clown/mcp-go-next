@@ -32,8 +32,8 @@ type ServerOption func(*serverConfig)
 // WithInstructions sets the guidance server/discover returns for the model.
 func WithInstructions(s string) ServerOption { return func(c *serverConfig) { c.instructions = s } }
 
-// WithCache sets ttlMs and cacheScope on list and read results that do not set their own.
-// The default is 0 and "private".
+// WithCache sets ttlMs and cacheScope on list and read results that leave cacheScope empty. A
+// nonzero ttlMs on such a result is kept. The default is 0 and "private".
 func WithCache(ttl time.Duration, scope protocol.CacheScope) ServerOption {
 	return func(c *serverConfig) { c.cacheTTL, c.cacheScope = ttl, scope }
 }
@@ -95,7 +95,8 @@ func NewServer(info Info, opts ...ServerOption) *Server {
 	return s
 }
 
-// Use adds middleware. The first one added runs first.
+// Use adds middleware. The first one added runs first. Each call wraps the whole chain again, so
+// every Middleware func runs again too; keep state such as counters outside the func.
 func (s *Server) Use(mw ...Middleware) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -171,12 +172,17 @@ func (s *Server) Handle(ctx context.Context, req *Request) (res protocol.Result,
 	}
 	res, err = (*s.chain.Load()).Handle(ctx, req)
 	if err != nil {
-		var e *Error
-		if !errors.As(err, &e) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			s.logError(fmt.Errorf("mcp: %s: %w", req.Method, err))
-			err = ErrInternal()
+		// A context error passes through unlogged only when this request's ctx ended. A handler's
+		// own timeout on some upstream call is a failure like any other.
+		if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return nil, err
 		}
-		return nil, err
+		var e *Error
+		if errors.As(err, &e) && e != nil {
+			return nil, err
+		}
+		s.logError(fmt.Errorf("mcp: %s: %w", req.Method, err))
+		return nil, ErrInternal()
 	}
 	if res == nil {
 		res = &protocol.EmptyResult{}
@@ -185,8 +191,8 @@ func (s *Server) Handle(ctx context.Context, req *Request) (res protocol.Result,
 	return res, nil
 }
 
-// stamp fills the fields every result carries. Handlers return fresh results, so this writes to
-// values no other request holds.
+// stamp fills the fields every result carries. It writes into res, which is why a Handler returns
+// a fresh result on every call.
 func (s *Server) stamp(res protocol.Result) {
 	base := res.Base()
 	if base.ResultType == "" {
@@ -202,7 +208,9 @@ func (s *Server) stamp(res protocol.Result) {
 	}
 	if c, ok := res.(protocol.Cacheable); ok {
 		if f := c.Cache(); f.CacheScope == "" {
-			f.TTLMs = s.cfg.cacheTTL.Milliseconds()
+			if f.TTLMs == 0 {
+				f.TTLMs = s.cfg.cacheTTL.Milliseconds()
+			}
 			f.CacheScope = s.cfg.cacheScope
 		}
 	}

@@ -119,6 +119,71 @@ func TestHandleMessageBadMeta(t *testing.T) {
 	}
 }
 
+func TestHandleMessageMetaMatchesDecodeParams(t *testing.T) {
+	s := NewServer(Info{Name: "t", Version: "1"})
+	var meta, decoded protocol.RequestMeta
+	s.HandleMethod("x.example/echo", HandlerFunc(func(ctx context.Context, req *Request) (protocol.Result, error) {
+		var p struct {
+			Meta protocol.RequestMeta `json:"_meta"`
+		}
+		if err := req.DecodeParams(&p); err != nil {
+			return nil, err
+		}
+		meta, decoded = req.Meta, p.Meta
+		return nil, nil
+	}))
+	params := `{"_meta":` + testMeta + `,"_META":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{"elicitation":{}},"io.modelcontextprotocol/logLevel":"debug"}}`
+	msg := &jsonrpc.Message{ID: idOf(1), Method: "x.example/echo", Params: json.RawMessage(params)}
+	if resp := HandleMessage(context.Background(), s, msg, nil, nil); resp.Error != nil {
+		t.Fatal(resp.Error)
+	}
+	if !reflect.DeepEqual(meta, decoded) {
+		t.Fatalf("req.Meta = %+v\nDecodeParams _meta = %+v", meta, decoded)
+	}
+	if meta.ClientCapabilities.Elicitation == nil {
+		t.Fatalf("the last case-folded _meta should win: %+v", meta)
+	}
+}
+
+type panicResult struct{ protocol.EmptyResult }
+
+func (*panicResult) MarshalJSON() ([]byte, error) { panic("boom") }
+
+func TestHandleMessageRecoversEncodePanic(t *testing.T) {
+	var logged []error
+	s := NewServer(Info{Name: "t", Version: "1"}, WithErrorLog(func(err error) { logged = append(logged, err) }))
+	s.HandleMethod("x.example/bad", HandlerFunc(func(ctx context.Context, req *Request) (protocol.Result, error) {
+		return &panicResult{}, nil
+	}))
+	resp := HandleMessage(context.Background(), s, requestMessage(t, 1, "x.example/bad", `{}`), nil, nil)
+	if resp == nil || resp.Error == nil || resp.Error.Code != -32603 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(logged) != 1 {
+		t.Fatalf("logged %d errors, want 1", len(logged))
+	}
+	note := &jsonrpc.Message{Method: "x.example/bad", Params: json.RawMessage(`{}`)}
+	if resp := HandleMessage(context.Background(), s, note, nil, nil); resp != nil {
+		t.Fatalf("a notification got a response: %+v", resp)
+	}
+}
+
+func TestHandleMessageTypedNilError(t *testing.T) {
+	var logged []error
+	s := NewServer(Info{Name: "t", Version: "1"}, WithErrorLog(func(err error) { logged = append(logged, err) }))
+	s.HandleMethod("x.example/nil", HandlerFunc(func(ctx context.Context, req *Request) (protocol.Result, error) {
+		var e *Error
+		return nil, e
+	}))
+	resp := HandleMessage(context.Background(), s, requestMessage(t, 1, "x.example/nil", `{}`), nil, nil)
+	if resp == nil || resp.Error == nil || resp.Error.Code != -32603 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(logged) != 1 {
+		t.Fatalf("logged %d errors, want 1", len(logged))
+	}
+}
+
 type recordingNotifier struct{ msgs []*jsonrpc.Message }
 
 func (r *recordingNotifier) Notify(_ context.Context, m *jsonrpc.Message) error {
@@ -167,6 +232,9 @@ func TestTopLevelMember(t *testing.T) {
 		{"empty object", `{}`, ``, false},
 		{"truncated", `{"_meta":{"a":`, ``, false},
 		{"escaped quote in value", `{"k":"a\\\"b","_meta":true}`, `true`, true},
+		{"other case", `{"_Meta":3}`, `3`, true},
+		{"case-folded repeat wins", `{"_meta":1,"_META":2}`, `2`, true},
+		{"longer key", `{"_metaa":1,"_met":2}`, ``, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -178,9 +246,10 @@ func TestTopLevelMember(t *testing.T) {
 	}
 }
 
-// FuzzTopLevelMember checks the fast scan against encoding/json for every valid object.
+// FuzzTopLevelMember checks the fast scan against encoding/json decoding into a field tagged
+// _meta, which is what DecodeParams does, for every valid object.
 func FuzzTopLevelMember(f *testing.F) {
-	for _, seed := range []string{`{"_meta":{"a":1},"x":2}`, `{"x":"_meta","_meta":1,"_meta":2}`, `{"_meta":5}`, `{"k":"a\\\"b","_meta":true}`} {
+	for _, seed := range []string{`{"_meta":{"a":1},"x":2}`, `{"x":"_meta","_meta":1,"_meta":2}`, `{"_meta":5}`, `{"k":"a\\\"b","_meta":true}`, `{"_meta":1,"_META":2}`, `{"_Meta":1}`} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, b []byte) {
@@ -189,7 +258,13 @@ func FuzzTopLevelMember(f *testing.F) {
 		if json.Unmarshal(b, &m) != nil || m == nil {
 			return
 		}
-		want, ok := m["_meta"]
+		var v struct {
+			Meta json.RawMessage `json:"_meta"`
+		}
+		if err := json.Unmarshal(b, &v); err != nil {
+			t.Fatalf("%q: decodes as a map but not a struct: %v", b, err)
+		}
+		want, ok := v.Meta, v.Meta != nil
 		if ok != found {
 			t.Fatalf("%q: found = %v, encoding/json found = %v", b, found, ok)
 		}
