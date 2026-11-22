@@ -46,7 +46,11 @@ The root package is `mcp`. The packages below arrive task by task through the v0
 - Every pull request gets labels, a milestone and an assignee, and links its issue.
 - Every pull request gets a code review before it is merged, even when CI is green. Fix or answer each finding first, and list them in the pull request.
 - Merge with a squash: `--subject "<pr title> (#<n>)" --body ""`, so no trailer lands on main.
-- Release with a tag `vX.Y.Z` on main, with notes from that version's CHANGELOG section.
+- Release often: after each merged change users will notice, or whenever it makes sense. Versions are `v0.<phase>.<n>`, so phase 1 is `v0.1.x`.
+  1. A `chore/release-x.y.z` pull request moves Unreleased to a dated section in `CHANGELOG.md`.
+  2. After it merges, push the tag `vX.Y.Z` on main.
+  3. `.github/workflows/release.yml` publishes the release. Its notes come from `scripts/release-notes.sh`, which credits each line's pull requests.
+- Each CHANGELOG line ends with the pull requests that made it, such as `(#12)` or `(#12, #15)`.
 - Never mention AI, assistants or code generation in code, comments, docs, commit messages, pull requests or issues. Never add `Co-Authored-By`, `Generated with` or similar trailers.
 - No em-dashes. Keep comments short and about why.
 - Update `CHANGELOG.md` under Unreleased for anything users will notice.
