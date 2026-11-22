@@ -20,13 +20,194 @@ Two good libraries exist. `mark3labs/mcp-go` is the most used and moves fast. `m
 - Zero third-party dependencies in the core module, including tests.
 - Tests that pass with `-race` on Linux, macOS and Windows, with no network and no sleeps.
 - A contributor can read `docs/spec-coverage.md`, pick an open row, and find a labeled issue for it.
+- Every row of the feature matrix below is covered by a phase in `docs/plans/roadmap.md`. Nothing either competitor does is left out without a written reason.
+- A project on `mark3labs/mcp-go` or `modelcontextprotocol/go-sdk` can move by changing import paths, with a tool that does the rewrite and lists anything not covered yet.
 
 ## Non-goals
 
 - Revisions before 2026-07-28 in the core. They come through the `legacy` module.
-- The deprecated HTTP+SSE transport.
+- The deprecated HTTP+SSE transport in the core. It lives in the `legacy` module for projects that still serve it.
 - An HTTP framework, router or config system. tether hands you an `http.Handler`.
 - Code generation. Wire types are written by hand and checked against the official schema.
+
+## Feature matrix
+
+The baseline is every feature in MCP 2026-07-28. On top of that, every feature either competitor ships is listed, so nothing gets dropped by accident.
+
+**Sources:** `mark3labs/mcp-go` was read at `41451a37` (v1.6.0 line, 2026-10-17). `modelcontextprotocol/go-sdk` was read on main on 2026-11-22 (v1.8.0), from its README, file layout and issue tracker.
+
+**Cell values:**
+- "yes" means the code is there.
+- "no" means it is missing or an open issue asks for it.
+- "unverified" means we could not confirm it from the source and README and still need to check.
+
+The Phase column points at `docs/plans/roadmap.md`.
+
+### Base protocol
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| B1 | 2026-07-28 stateless requests, `_meta` per request | yes | yes | yes | 1 | One code path. Neither competitor can drop the session machinery without breaking users |
+| B2 | Revisions 2025-11-25 and older | yes | yes | adapter | 2 | Opt-in `legacy` module, so the core stays free of era branches |
+| B3 | `server/discover` | yes | yes | yes | 1 | Answered from the registry snapshot, never stale |
+| B4 | Multi round-trip input requests (MRTR) | yes | yes | yes | 1 | Plain function call, `requestState` helpers, and a replay safety check in the test kit |
+| B5 | `subscriptions/listen` | yes | unverified | yes | 1 | Bounded broker: a slow listener is closed and never blocks requests (mark3labs queue-at-10 bug) |
+| B6 | Cancellation | yes | yes | yes | 1 | Through `ctx` on every transport, tested for leaks |
+| B7 | Progress | yes | yes | yes | 1 | Ordering guarantee before the response on every transport, in-memory included |
+| B8 | Per-request log level | yes | yes | yes | 1 | No log without an explicit level, as the spec says |
+| B9 | Caching hints `ttlMs`, `cacheScope` | yes | yes | yes | 1 | Server-wide defaults with per-result override |
+| B10 | Pagination | yes | yes | yes | 1 | Cursors stay valid while tools change (mark3labs #1214) |
+| B11 | Standard headers `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*` | yes | yes | yes | 1 | Checked on both sides, base64 values fuzzed |
+| B12 | Error codes -32020, -32021, -32022 with data | yes | yes | yes | 1 | Constructors carry the spec's `data` shape |
+| B13 | Custom JSON-RPC methods and notifications | unverified | yes | yes | 1 | `srv.HandleMethod` and `conn.Request` are public from day one (go-sdk #745) |
+| B14 | Large-message performance | partial | partial | yes | 1 | One envelope decode and one `_meta` decode per message, benchmarked in CI (mark3labs perf draft, go-sdk #1531) |
+
+### Server features
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| S1 | Typed tools from Go types | yes | yes | yes | 1 | Generic `AddTool[In, Out]`, stdlib schema inference |
+| S2 | Raw schema passthrough | yes | yes | yes | 1 | Byte-for-byte, tested |
+| S3 | Structured output and output schema | yes | yes | yes | 1 | Inferred from `Out` |
+| S4 | Input validation | yes | yes | yes | 1 | Exact decimal numbers (go-sdk #1310), case-sensitive names (mark3labs #1165) |
+| S5 | Full JSON Schema 2020-12 validation | yes | yes | module | 5 | Opt-in module, core stays dependency-free |
+| S6 | Resources and templates | yes | yes | yes | 1 | |
+| S7 | Prompts | yes | yes | yes | 1 | |
+| S8 | Completion | yes | yes | yes | 1 | |
+| S9 | Logging to client (deprecated) | yes | yes | yes | 1 | |
+| S10 | Registration while serving | race bugs | unverified | yes | 1 | Copy-on-write snapshots (mark3labs #1303, #1305) |
+| S11 | Per-user tool sets and tool filters | yes | unverified | yes | 5 | Filter on the request principal from auth middleware, no session table |
+| S12 | Hooks around requests | yes | middleware | middleware | 1 | One mechanism, `func(Handler) Handler` |
+| S13 | Panic recovery | yes | unverified | yes | 1 | Always on, stack never sent to the client |
+| S14 | Tool result size limit | yes | unverified | yes | 5 | Middleware |
+| S15 | Concurrency limits, worker pool | yes | unverified | yes | 1 (stdio), 5 (HTTP middleware) | |
+
+### Client features
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| C1 | Elicitation form and URL | yes | yes | yes | 1 | Typed `Form[T]` and `Answer[T]` |
+| C2 | Sampling (deprecated) | yes | yes | yes | 1 | |
+| C3 | Roots (deprecated) | yes | yes | yes | 1 | |
+| C4 | Automatic MRTR retry loop | yes | yes | yes | 1 | Round limit, `requestState` carried, clear error when no handler (mark3labs #1286) |
+| C5 | Typed calls and pagination iterators | yes | yes | yes | 1 | `Call[Out]`, `iter.Seq2` |
+| C6 | Schema passthrough to models | needs re-marshal | yes | yes | 1 | `json.RawMessage` fields (mark3labs tool-schema draft) |
+
+### Transports
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| T1 | stdio server | yes | yes | yes | 1 | Final line without newline, drain at EOF (go-sdk #1061) |
+| T2 | stdio client and subprocess | yes | yes | yes | 1 | Close stdin, wait, kill, with leak tests |
+| T3 | Streamable HTTP server | yes | yes | yes | 1 | Body limit (mark3labs #1107), Origin check by default, JSON or SSE chosen per response |
+| T4 | Streamable HTTP client | yes | yes | yes | 1 | Fuzzed SSE reader (mark3labs #1267, #1186), deadlines kept (go-sdk #1189) |
+| T5 | In-memory transport | yes, ordering bug | yes | yes | 1 | Real JSON encoding and the same ordering rule |
+| T6 | Custom transports | yes | yes | yes | 1 | One small interface over public `jsonrpc` |
+| T7 | HTTP+SSE transport (deprecated) | yes | yes | adapter | 2 | In `legacy` only |
+| T8 | Resumability, event store (removed in 2026-07-28) | yes | yes | adapter | 2 | In `legacy` only |
+| T9 | CORS helpers | yes | unverified | yes | 5 | Middleware |
+
+### Authorization
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| A1 | Protected resource metadata (RFC 9728) | yes | yes | yes | 2 | Lenient resource matching per RFC (go-sdk #1538) |
+| A2 | Bearer token middleware with audience checks | unverified | yes | yes | 2 | |
+| A3 | `WWW-Authenticate`, 403 `insufficient_scope`, step-up | unverified | partial | yes | 2 | Request-time scope challenges (go-sdk #1248) |
+| A4 | Client OAuth 2.1 with PKCE | yes | experimental | yes | 2 | Conformance auth suite in CI |
+| A5 | Client ID Metadata Documents | unverified | unverified | yes | 2 | Preferred path, as the spec asks |
+| A6 | Dynamic client registration (deprecated) | unverified | yes | yes | 2 | Sends scopes (go-sdk #1102) |
+| A7 | RFC 8707 `resource`, RFC 9207 `iss` checks | yes | unverified | yes | 2 | |
+| A8 | Token refresh before expiry | partial | unverified | yes | 2 | mark3labs #1122 |
+| A9 | Client credentials, enterprise-managed authorization, token exchange | unverified | yes | yes | 5 | |
+| A10 | DPoP | unverified | unverified | yes | 5 | Conformance has scenarios |
+
+### Extensions
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| E1 | Tasks (`io.modelcontextprotocol/tasks`) | yes | no (#626) | yes | 5 | Built on the stateless core with a pluggable task store |
+| E2 | Skills over MCP | unverified | unverified | yes | 5 | Conformance has scenarios |
+| E3 | MCP Apps (UI) | unverified | unverified | yes | 5 | |
+| E4 | Declaring extensions in capabilities | yes | yes | yes | 1 | |
+
+### Operations, testing and project
+
+| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+|---|---|---|---|---|---|---|
+| O1 | OpenTelemetry traces and metrics | yes (module) | unverified | yes (module) | 5 | Separate module, trace context through `_meta` |
+| O2 | Structured logging (`slog`) | yes | yes | yes | 1 | `WithErrorLog`, `slog` adapter in phase 5 |
+| O3 | Rate limiting | no (#896) | example | yes | 5 | Middleware keyed by principal |
+| O4 | Test kit | yes (`mcptest`) | in-memory | yes | 1 | Pair, leak check, replay check, golden files |
+| O5 | Official conformance suite in CI | yes | yes | yes | 1 | Baseline file reviewed on every change |
+| O6 | Interop with reference servers and clients | unverified | unverified | yes | 3 | Published matrix in `docs/interop.md` |
+| O7 | Fuzz tests | unverified | unverified | yes | 1 | JSON-RPC, SSE, headers |
+| O8 | Third-party dependencies in the core | 7 direct | several | 0 | 1 | |
+| O9 | Drop-in from mark3labs | n/a | n/a | yes | 3 | See Compatibility |
+| O10 | Drop-in from go-sdk | n/a | n/a | yes | 4 | See Compatibility |
+
+### Where "better" is not proven yet
+
+Some things cannot be claimed on day one. Each item says what would earn the claim.
+
+- **Maturity.** Both competitors have years of production use and thousands of dependents. tether has none. Earn it by publishing the conformance pass rate and interop matrix on every release, then real adopters.
+- **Official status.** go-sdk is the official SDK and appears on the SDK tiers page. Earn it by passing the full conformance suite and applying for a tier listing at v1.0.
+- **Breadth of older revisions.** Both support every revision in their core. tether supports them through `legacy` from phase 2. Earn parity with the upstream test suites, run against `legacy` (phase 3).
+- **Performance.** The single-decode design should be faster on large messages, but that is a claim until it is measured. Earn it with the phase 1 benchmarks run side by side with both competitors and published in `docs/benchmarks.md` (phase 3).
+- **Contributors.** One maintainer today. Earn it with labeled issues for every open roadmap row and fast reviews.
+- **"unverified" cells.** Each one gets checked against the competitor's source before phase 3. The matrix is corrected wherever we were wrong.
+
+## Compatibility and migration
+
+Projects on `mark3labs/mcp-go` or `modelcontextprotocol/go-sdk` move by changing import paths. Code written against tether's own API is the long-term path, and the shims are the bridge.
+
+### Shim modules
+
+| Module | Mirrors | Phase |
+|---|---|---|
+| `github.com/raven-clown/tether/compat/mark3labs` | `mcp`, `server`, `client`, `client/transport`, `mcptest` of `github.com/mark3labs/mcp-go` | 3 |
+| `github.com/raven-clown/tether/compat/gosdk` | `mcp`, `jsonrpc`, `auth`, `oauthex` of `github.com/modelcontextprotocol/go-sdk` | 4 |
+
+- Each shim keeps the upstream package names, exported identifiers and signatures, and runs on tether's core. The session APIs both libraries expose are emulated through `legacy`, so a shim depends on `legacy`.
+- Each shim pins the upstream version it mirrors. `internal/cmd/apisurface` lists every exported symbol of that upstream version and of the shim. CI fails when the shim drops a symbol it covered before. The coverage percentage goes in `docs/compat-status.md`.
+- Proof of drop-in: CI copies the upstream repositories' own `examples/` at the pinned version, rewrites their imports to the shim, builds them, and runs the ones that have tests.
+
+### What is drop-in and what is not
+
+`docs/compat-status.md` holds the live list, generated from `apisurface` and the example builds. At the start of phase 3 it looks like this:
+
+| Area | Drop-in | Not yet, with the plan |
+|---|---|---|
+| Tool, resource and prompt registration, typed tools, results | yes | |
+| stdio and Streamable HTTP servers and clients | yes | |
+| Sampling, elicitation, roots, progress, logging | yes | |
+| OAuth client and server options | yes after phase 2 | |
+| Session hooks, session-specific tools, session ID managers | emulated through `legacy` | behavior on 2026-07-28 requests differs because sessions do not exist there, and the guide says how |
+| SSE server and event stores | through `legacy` | |
+| Package internals, unexported behavior, exact error strings | no | not part of the contract |
+| Upstream symbols added after the pinned version | no | the shim is bumped each tether minor release |
+
+### Migration tool
+
+`cmd/tether-migrate` uses `go/ast` and `go/format` from the standard library:
+
+- `tether-migrate ./...` rewrites upstream imports to the shim paths and prints every use of a symbol the shim does not cover, with file and line.
+- `tether-migrate -native ./...` (phase 5) rewrites the common patterns to tether's own API and leaves a `// tether-migrate:` note where a person has to decide.
+- `-dry-run` prints a diff instead of writing.
+
+### Migration guides
+
+`docs/migrate/mark3labs.md` and `docs/migrate/go-sdk.md` show the same server and client side by side in the upstream API, the shim and native tether, and list every behavior difference.
+
+### Interop tests
+
+A CI job `interop` (phase 3) runs:
+
+- tether's client against the reference `everything` server and the TypeScript and Python SDK example servers
+- the TypeScript and Python SDK clients against tether's conformance server
+- the MCP Inspector CLI against tether's server
+
+The results table is published in `docs/interop.md` on every release.
 
 ## Module and packages
 
@@ -43,15 +224,22 @@ Module path `github.com/raven-clown/tether`. Supported Go versions are the two l
 | `tethertest` | In-memory client and server pair, goroutine leak check, golden helpers, MRTR replay check |
 | `conformance/server`, `conformance/client` | Programs driven by the official conformance suite |
 | `examples/...` | Small complete programs |
+| `middleware` | Phase 5: rate limit, CORS, result size limit, tool filter, concurrency limit, `slog` logging |
+| `cmd/tether-migrate` | Phase 3: import rewriter and report for projects moving from other libraries |
 
-Separate modules, each with its own `go.mod`, so the core never imports them:
+Phase N ships as v0.N. Separate modules, each with its own `go.mod`, so the core never imports them:
 
-| Module | Version | Purpose |
+| Module | Phase | Purpose |
 |---|---|---|
-| `github.com/raven-clown/tether/auth` | v0.2 | OAuth 2.1 for servers and clients |
-| `github.com/raven-clown/tether/legacy` | v0.2 | 2025-11-25 handshake and session adapter |
-| `github.com/raven-clown/tether/ext/tasks` | v0.3 | `io.modelcontextprotocol/tasks` extension |
-| `github.com/raven-clown/tether/jsonschema/full` | v0.3 | Full JSON Schema 2020-12 validator behind the `Validator` interface |
+| `github.com/raven-clown/tether/auth` | 2 | OAuth 2.1 for servers and clients |
+| `github.com/raven-clown/tether/legacy` | 2 | Revisions 2025-11-25 and older: handshake, sessions, HTTP+SSE, resumability |
+| `github.com/raven-clown/tether/compat/mark3labs` | 3 | API of `mark3labs/mcp-go` on tether |
+| `github.com/raven-clown/tether/compat/gosdk` | 4 | API of `modelcontextprotocol/go-sdk` on tether |
+| `github.com/raven-clown/tether/ext/tasks` | 5 | `io.modelcontextprotocol/tasks` extension |
+| `github.com/raven-clown/tether/ext/skills` | 5 | Skills over MCP |
+| `github.com/raven-clown/tether/ext/apps` | 5 | MCP Apps (UI) |
+| `github.com/raven-clown/tether/jsonschema/full` | 5 | Full JSON Schema 2020-12 validator behind the `Validator` interface |
+| `github.com/raven-clown/tether/otel` | 5 | OpenTelemetry traces and metrics middleware |
 
 Dependency rules:
 
@@ -98,7 +286,7 @@ For each request the server:
 4. Runs middleware, then the method handler.
 5. Sets `resultType` on the result (`complete` unless the handler asked for input), and `ttlMs` and `cacheScope` on list and read results from server options.
 
-Unknown methods return -32601.
+Unknown methods return -32601. `srv.HandleMethod(name, h)` registers a handler for a method the spec does not define, such as an extension method, and goes through the same checks and middleware. On the client, `conn.Request(ctx, method, params, &out)` and `conn.Notify(ctx, method, params)` send custom messages.
 
 ### Registry
 
@@ -263,9 +451,28 @@ Client: `streamable.Dial(url, opts...)` returns a `Transport`.
 - `AGENTS.md`: commands, layout and rules for anyone working in the repository, kept current in the same commit as any change to them.
 - `CONTRIBUTING.md`: setup, running tests and the conformance suite locally, how to pick an issue, branch names, Conventional Commits, review expectations.
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1) and `SECURITY.md` (GitHub private vulnerability reporting).
-- Issue templates: bug report, feature request, spec gap (names the spec section). A pull request template with a checklist.
-- Labels: `good first issue`, `help wanted`, `bug`, `enhancement`, `spec`, `area/server`, `area/client`, `area/stdio`, `area/http`, `area/schema`, `docs`, `breaking`.
-- Milestones `v0.1`, `v0.2`, `v0.3`.
+- Issue forms: bug report, feature request, spec gap (names the spec section), plus `config.yml` that turns off blank issues and points questions to Discussions. A pull request template with a checklist.
+- `CODEOWNERS` naming `@raven-clown` for everything, so every PR asks for review.
+- Labels:
+  - kind: `bug`, `enhancement`, `docs`, `breaking`, `spec`
+  - help: `good first issue`, `help wanted`
+  - area: `area/server`, `area/client`, `area/stdio`, `area/http`, `area/schema`, `area/auth`, `area/legacy`, `area/compat`, `area/ext`, `area/ci`
+  - priority: `priority/p0` (breaks users), `priority/p1` (next release), `priority/p2` (planned), `priority/p3` (nice to have)
+- Milestones `v0.1` to `v0.5` and `v1.0`, one per phase.
+- A GitHub Project "tether roadmap" with one issue per plan task and per roadmap row, fields Phase, Area and Priority, and board columns Todo, In progress, In review and Done.
+- Repository settings:
+  - Discussions on
+  - private vulnerability reporting on
+  - approval required before workflows run on pull requests from all outside contributors
+  - squash merge only
+  - delete branches after merge
+- Ruleset on `main`:
+  - pull request required
+  - required status checks `test`, `lint`, `vuln`, `coverage` and `conformance`
+  - conversations resolved before merge
+  - linear history
+  - no force push and no deletion
+  - the maintainer may bypass only for the release tag
 - `docs/spec-coverage.md`: one row per spec feature with status and issue link.
 - `CHANGELOG.md` in Keep a Changelog form. Releases are tags `vX.Y.Z` on main with notes from the changelog.
 
@@ -278,14 +485,20 @@ GitHub Actions on every pull request and on main:
 - `vuln`: govulncheck
 - `conformance`: the official suite against both programs
 - `coverage`: fails under 80%
-- Dependabot for GitHub Actions
+- `interop` (phase 3): reference servers and clients, see Compatibility
+- `compat` (phase 3): `apisurface` check and upstream example builds against each shim
+- Dependabot for GitHub Actions and for the Go modules outside the core
 
 ## Roadmap
 
-- **v0.1**: everything above. Every 2026-07-28 core conformance scenario passes.
-- **v0.2**: `auth` module. Server side: RFC 9728 protected resource metadata, bearer token middleware with audience checks, `WWW-Authenticate` with `resource_metadata`, 403 `insufficient_scope`. Client side: OAuth 2.1 with PKCE, Client ID Metadata Documents, RFC 8707 `resource`, RFC 9207 `iss` checks, refresh before expiry. `legacy` module for 2025-11-25.
-- **v0.3**: tasks extension, `jsonschema/full`.
-- **v1.0**: API freeze after real use.
+`docs/plans/roadmap.md` maps every matrix row to a phase and outlines the tasks for each phase. In short:
+
+- **Phase 1 (v0.1)**: the core, both transports, server and client, test kit. Every 2026-07-28 core conformance scenario passes.
+- **Phase 2 (v0.2)**: `auth` and `legacy`. Auth conformance suite passes, older revisions work.
+- **Phase 3 (v0.3)**: `compat/mark3labs`, `tether-migrate`, migration guide, interop job, side-by-side benchmarks.
+- **Phase 4 (v0.4)**: `compat/gosdk` and its guide.
+- **Phase 5 (v0.5)**: extensions (tasks, skills, apps), `jsonschema/full`, `otel`, `middleware`, remaining auth extensions, `tether-migrate -native`.
+- **v1.0**: API freeze, full conformance suite, tier listing application.
 
 ## Risks
 
@@ -293,3 +506,5 @@ GitHub Actions on every pull request and on main:
 - **MRTR replay surprises handler authors.** Covered by docs, an example, and `tethertest.CheckReplaySafe`.
 - **Few hosts may speak 2026-07-28 yet.** The `legacy` module in v0.2 covers older clients. Until then tether servers reach only up-to-date clients, which the README states.
 - **One maintainer at the start.** The contributor setup, the coverage table and labeled issues exist so that others can pick up work without a meeting.
+- **Scope.** Covering every row and two shims is years of work for one person. Phases ship on their own, each is useful without the next, and the matrix shows what is not done yet instead of hiding it.
+- **Shims chase moving targets.** Both upstream libraries release often. Shims pin a version, `apisurface` shows the gap after each upstream release, and bumping the pin is a labeled `good first issue` style task.
