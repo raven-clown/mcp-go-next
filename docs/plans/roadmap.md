@@ -8,9 +8,9 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 
 ## Phase 1: core for servers with many tools (v0.1)
 
-**Rows:** B1, B3 to B14, S1 to S4, S6 to S18, S20 (stdio), C1 to C10, T1 to T6, T9, T10, E4, O2, O4, O5, O7, O8, O9.
+**Rows:** B1, B2 (handshake and sessions), B3 to B14, S1 to S4, S6 to S18, S20 (stdio), C1 to C10, T1 to T6, T9, T10, E4, O2, O4, O5, O7, O8, O9.
 
-**Plan:** `docs/plans/2026-11-22-v0.1.md`.
+**Plan:** `docs/plans/2026-11-22-v0.1.md`. Its "Order of work" section builds servers first, then the `legacy` initialize handshake, then clients, so that mcp-go-next can replace mark3labs/mcp-go in real projects before the rest of phase 1 lands. The handshake moved here from phase 2 because most hosts still speak 2025-11-25.
 
 **Done when:**
 - every 2026-07-28 core conformance scenario passes
@@ -20,7 +20,7 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 
 ## Phase 2: auth and legacy (v0.2)
 
-**Rows:** B2, T7, T8, A1 to A8.
+**Rows:** B2 (the rest), T7, T8, A1 to A8.
 
 1. `auth` module skeleton and CI wiring.
 2. Protected resource metadata handler with resource matching per RFC 9728 (A1, go-sdk #1538).
@@ -31,13 +31,13 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 7. Client ID Metadata Documents, then pre-registration, then DCR with scopes (A5, A6, go-sdk #1102).
 8. Token refresh before expiry, plus a `TokenStore` interface to save and restore token sets (A8, mark3labs #1122, go-sdk #901).
 9. Auth conformance suite in CI.
-10. `legacy` module skeleton.
-11. `legacy` initialize handshake and `Mcp-Session-Id` mapped to per-request `_meta` (B2).
-12. `legacy` server-to-client requests mapped onto input-request handlers.
-13. `legacy` GET stream and resource subscribe mapped onto the broker.
-14. `legacy` HTTP+SSE transport, server and client (T7).
-15. `legacy` resumability with an `EventStore` interface (T8).
-16. Legacy conformance scenarios removed from the baseline.
+10. `legacy` server-to-client requests mapped onto input-request handlers.
+11. `legacy` GET stream, list-changed notifications and resource subscribe mapped onto the broker, on both the server and client side.
+12. `legacy` HTTP+SSE transport, server and client (T7).
+13. `legacy` resumability with an `EventStore` interface (T8).
+14. Legacy conformance scenarios removed from the baseline.
+
+The `legacy` module skeleton and the initialize handshake with `Mcp-Session-Id`, for servers and clients, moved to phase 1 as Tasks L1 to L3.
 
 **Done when:** the baseline holds only phase 4 items, and a 2025-11-25 client works through `legacy`.
 
@@ -89,7 +89,7 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 | Rows | Phase |
 |---|---|
 | B1, B3 to B14 | 1 |
-| B2 | 2 |
+| B2 | 1 (handshake and sessions), 2 (the rest) |
 | S1 to S4, S6 to S18 | 1 |
 | S5, S19 | 4 |
 | S20 | 1 (stdio), 4 (HTTP) |

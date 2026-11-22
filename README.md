@@ -21,7 +21,7 @@ The design starts from what people building MCP servers in Go ran into with toda
 - stdio and Streamable HTTP transports
 - Tools, toolsets, resources, prompts, completion, discovery, subscriptions, input requests, progress, cancellation
 - OAuth 2.1 for servers and clients
-- An adapter for clients on revision 2025-11-25 and earlier
+- An adapter for clients and servers on revision 2025-11-25 and earlier, built right after the transports
 - A gateway package for aggregating upstream servers
 - Extensions such as tasks, skills and apps
 
