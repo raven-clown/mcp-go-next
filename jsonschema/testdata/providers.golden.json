@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "p": {
+      "type": "object",
+      "x": 1
+    },
+    "q": {
+      "type": "string",
+      "y": 2
+    }
+  },
+  "required": [
+    "p",
+    "q"
+  ],
+  "type": "object"
+}

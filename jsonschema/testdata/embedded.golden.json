@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hidden": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "note": {
+      "type": "string"
+    },
+    "own": {
+      "type": "string"
+    },
+    "tagged": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "hidden",
+    "id",
+    "own",
+    "tagged"
+  ],
+  "type": "object"
+}
