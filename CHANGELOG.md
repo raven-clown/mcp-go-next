@@ -8,10 +8,12 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-22
+
 ### Added
 
 - `Principal`, set by auth middleware with `req.SetPrincipal`, for knowing who is calling without sessions. (#79)
-- `Handles[T]`, for state a client refers to by ID across requests, such as a cart or a query cursor. Each value belongs to the principal that created it, and any other principal gets `ErrHandleNotFound`, the same as for an unknown ID. Handles expire after a TTL, and the memory store keeps at most 10,000 by default. A `HandleStore` such as Redis can replace the memory store for servers with several replicas. (#79)
+- `Handles[T]`, for state a client refers to by ID across requests, such as a cart or a query cursor. Each value belongs to the principal that created it, and any other principal gets `ErrHandleNotFound`, the same as for an unknown ID. Handles expire after a TTL, and the memory store keeps at most 10,000 by default, and 1,000 per owner so one principal cannot push out the others. A `HandleStore` such as Redis can replace the memory store for servers with several replicas. (#79)
 - `WithObserver`, which sees every request's start and its outcome with the duration, for metrics without middleware. (#79)
 
 ## [0.1.2] - 2026-11-22
@@ -65,7 +67,8 @@ The first building blocks. There is no server or client yet: this release has th
   - Typical tool arguments validate in about 3 µs.
   - (#71, #72)
 
-[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raven-clown/mcp-go-next/releases/tag/v0.1.0
