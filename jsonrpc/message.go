@@ -141,8 +141,12 @@ func Encode(m *Message) ([]byte, error) {
 	}
 	if m.Params != nil {
 		buf.WriteString(`,"params":`)
+		start := buf.Len()
 		if err := json.Compact(&buf, m.Params); err != nil {
 			return nil, errors.New("jsonrpc: params are not valid JSON")
+		}
+		if c := buf.Bytes()[start]; c != '{' && c != '[' {
+			return nil, errors.New("jsonrpc: params must be an object or an array")
 		}
 	}
 	if hasResult {

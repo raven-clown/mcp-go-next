@@ -90,6 +90,9 @@ func TestDecodeRejects(t *testing.T) {
 		{"error code not an integer", `{"jsonrpc":"2.0","id":1,"error":{"code":1.5,"message":"x"}}`, CodeInvalidRequest},
 		{"error without message", `{"jsonrpc":"2.0","id":1,"error":{"code":1}}`, CodeInvalidRequest},
 		{"key in the wrong case", `{"jsonrpc":"2.0","id":1,"Method":"a"}`, CodeInvalidRequest},
+		{"error keys in the wrong case", `{"jsonrpc":"2.0","id":1,"error":{"Code":1,"MESSAGE":"x"}}`, CodeInvalidRequest},
+		{"error code in the wrong case", `{"jsonrpc":"2.0","id":1,"error":{"CODE":1,"message":"x"}}`, CodeInvalidRequest},
+		{"error message not a string", `{"jsonrpc":"2.0","id":1,"error":{"code":1,"message":5}}`, CodeInvalidRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,6 +195,9 @@ func TestEncodeRejects(t *testing.T) {
 		{"result and error", &Message{ID: Int64ID(1), Result: json.RawMessage(`{}`), Error: &Error{Code: 1, Message: "x"}}},
 		{"method and result", &Message{ID: Int64ID(1), Method: "a", Result: json.RawMessage(`{}`)}},
 		{"invalid params", &Message{Method: "a", Params: json.RawMessage(`{`)}},
+		{"null params", &Message{Method: "a", Params: json.RawMessage(`null`)}},
+		{"scalar params", &Message{Method: "a", Params: json.RawMessage(` 5 `)}},
+		{"string params", &Message{ID: Int64ID(1), Method: "a", Params: json.RawMessage(`"x"`)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,6 +205,26 @@ func TestEncodeRejects(t *testing.T) {
 				t.Fatalf("Encode = %s, want error", got)
 			}
 		})
+	}
+}
+
+// Anything Encode writes, Decode must accept.
+func TestEncodeOutputDecodes(t *testing.T) {
+	for _, m := range []*Message{
+		{ID: Int64ID(1), Method: "a", Params: json.RawMessage(`{}`)},
+		{ID: Int64ID(1), Method: "a", Params: json.RawMessage(`[1]`)},
+		{Method: "a"},
+		{ID: StringID("x"), Result: json.RawMessage(`null`)},
+		{ID: Int64ID(2), Error: &Error{Code: 1, Message: "x", Data: json.RawMessage(`{"a":1}`)}},
+		{Error: &Error{Code: CodeParseError, Message: "parse error"}},
+	} {
+		out, err := Encode(m)
+		if err != nil {
+			t.Fatalf("Encode(%+v): %v", m, err)
+		}
+		if _, err := Decode(out); err != nil {
+			t.Fatalf("Decode(Encode(%+v)) = %v\n%s", m, err, out)
+		}
 	}
 }
 
