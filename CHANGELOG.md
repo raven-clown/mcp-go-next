@@ -8,6 +8,10 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+### Added
+
+- `Server`, `Handler`, `Middleware`, `Request` and `Error`, plus `HandleMessage`, the entry point a transport calls for each message. It checks the protocol version, recovers panics into internal errors, keeps the text of unexpected errors from the client, and stamps `resultType`, server info and cache fields on every result. A small request round trip takes about 3.8 µs. There are no tools, resources or transports yet. (#77)
+
 ## [0.1.1] - 2026-11-22
 
 ### Changed
