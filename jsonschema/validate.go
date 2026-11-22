@@ -679,6 +679,10 @@ func (r *run) object(n *node, x map[string]any, p *path, depth int) {
 		return
 	}
 	if r.sorted {
+		// Sorting costs about as much as walking the keys again, so it is charged first.
+		if !r.charge(len(x)) {
+			return
+		}
 		for _, key := range sortedKeys(x) {
 			r.property(n, key, x[key], p, depth)
 			if r.stopped {
@@ -695,7 +699,19 @@ func (r *run) object(n *node, x map[string]any, p *path, depth int) {
 	}
 }
 
+// charge counts work that is not a schema evaluation, such as walking a key, against MaxSteps.
+func (r *run) charge(n int) bool {
+	r.steps += n
+	if r.steps > r.cfg.maxSteps {
+		r.stopped = true
+	}
+	return !r.stopped
+}
+
 func (r *run) property(n *node, key string, value any, p *path, depth int) {
+	if !r.charge(1 + len(n.patternProps)) {
+		return
+	}
 	at := p.child(key)
 	matched := false
 	if s, ok := n.properties[key]; ok {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,24 @@ func TestManyFailuresUnderLongPaths(t *testing.T) {
 	if len(err.Error()) > 200_000 {
 		t.Errorf("error message is %d bytes", len(err.Error()))
 	}
+}
+
+// Walking keys is work too, so MaxSteps must bound it even when no key matches a property.
+func TestObjectKeysCostSteps(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("{")
+	for i := 0; i < 100_000; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`"k` + strconv.Itoa(i) + `":1`)
+	}
+	b.WriteString("}")
+	instance := json.RawMessage(b.String())
+	s := mustCompile(t, `{"properties":{"bad":{"type":"integer"}},"patternProperties":{"^z":{}},"anyOf":[{"$ref":"#"},{"$ref":"#"},{"type":"null"}]}`)
+	within(t, 5*time.Second, func() {
+		_ = s.Validate(instance)
+	})
 }
 
 func TestReportedPathsAreShort(t *testing.T) {
