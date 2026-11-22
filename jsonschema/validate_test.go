@@ -139,6 +139,7 @@ func TestCompileRejects(t *testing.T) {
 		{"unresolved ref", `{"$ref":"#/$defs/missing"}`, "$ref"},
 		{"not a schema", `"x"`, "schema"},
 		{"bad json", `{`, "schema"},
+		{"trailing garbage", `{}A`, "schema"},
 		{"bad type name", `{"type":"text"}`, "type"},
 		{"type not a string", `{"type":5}`, "type"},
 		{"minLength not an integer", `{"minLength":1.5}`, "minLength"},

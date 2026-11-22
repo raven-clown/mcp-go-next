@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // SchemaProvider lets a type give its own schema, so ForType runs no reflection for it.
@@ -71,22 +72,75 @@ func (b *builder) schema(t reflect.Type, depth int) (any, error) {
 	if raw, ok, err := providedSchema(t); ok || err != nil {
 		return raw, err
 	}
-	switch {
-	case t.Kind() == reflect.Pointer:
+	if t.Kind() == reflect.Pointer && t.Name() == "" {
 		return b.schema(t.Elem(), depth)
-	case t == timeType:
-		return map[string]any{"type": "string", "format": "date-time"}, nil
-	case t == rawMessageType:
-		return map[string]any{}, nil
-	case t == numberType:
-		return map[string]any{"type": "number"}, nil
-	case implements(t, marshalerType):
-		return map[string]any{}, nil
-	case implements(t, textMarshalerType):
-		return map[string]any{"type": "string"}, nil
 	}
-
+	if s, ok := special(t); ok {
+		return s, nil
+	}
 	switch t.Kind() {
+	case reflect.Struct, reflect.Slice, reflect.Map, reflect.Array, reflect.Pointer:
+		if t.Name() != "" {
+			return b.named(t, depth)
+		}
+	}
+	return b.build(t, depth)
+}
+
+// named builds a named composite type, which may refer to itself. A type met again while it is
+// still being built becomes a $ref into $defs.
+func (b *builder) named(t reflect.Type, depth int) (any, error) {
+	if b.inProgress[t] {
+		b.recursive[t] = true
+		return map[string]any{"$ref": "#/$defs/" + b.defName(t)}, nil
+	}
+	b.inProgress[t] = true
+	s, err := b.build(t, depth)
+	delete(b.inProgress, t)
+	if err != nil || !b.recursive[t] {
+		return s, err
+	}
+	if depth > 0 {
+		b.defs[b.defName(t)] = s
+		return map[string]any{"$ref": "#/$defs/" + b.defName(t)}, nil
+	}
+	// The root stays inline and gains $defs, so $defs holds a copy to avoid a cycle.
+	if m, ok := s.(map[string]any); ok {
+		def := make(map[string]any, len(m))
+		for k, v := range m {
+			def[k] = v
+		}
+		b.defs[b.defName(t)] = def
+	}
+	return s, nil
+}
+
+// special handles types whose JSON form does not follow from their kind.
+func special(t reflect.Type) (map[string]any, bool) {
+	switch {
+	case t == timeType:
+		return map[string]any{"type": "string", "format": "date-time"}, true
+	case t == rawMessageType:
+		return map[string]any{}, true
+	case t == numberType:
+		return map[string]any{"type": "number"}, true
+	case implements(t, marshalerType):
+		return map[string]any{}, true
+	case implements(t, textMarshalerType):
+		return map[string]any{"type": "string"}, true
+	}
+	return nil, false
+}
+
+func (b *builder) build(t reflect.Type, depth int) (any, error) {
+	switch t.Kind() {
+	case reflect.Pointer:
+		// Only a named pointer type gets here; a nil one is written as null.
+		s, err := b.schema(t.Elem(), depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return nullable(s), nil
 	case reflect.Bool:
 		return map[string]any{"type": "boolean"}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -169,19 +223,13 @@ func providedSchema(t reflect.Type) (raw json.RawMessage, ok bool, err error) {
 }
 
 func (b *builder) structSchema(t reflect.Type, depth int) (any, error) {
-	named := t.Name() != ""
-	if named && b.inProgress[t] {
-		b.recursive[t] = true
-		return map[string]any{"$ref": "#/$defs/" + b.defName(t)}, nil
-	}
-	if named {
-		b.inProgress[t] = true
-		defer delete(b.inProgress, t)
-	}
-
 	properties := map[string]any{}
 	var required []string
-	for _, f := range structFields(t) {
+	fields, err := structFields(t)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fields {
 		s, err := b.schema(f.typ, depth+1)
 		if err != nil {
 			return nil, fmt.Errorf("%s.%s: %w", t, f.goName, err)
@@ -219,18 +267,6 @@ func (b *builder) structSchema(t reflect.Type, depth int) (any, error) {
 		sort.Strings(required)
 		s["required"] = required
 	}
-	if named && b.recursive[t] {
-		if depth > 0 {
-			b.defs[b.defName(t)] = s
-			return map[string]any{"$ref": "#/$defs/" + b.defName(t)}, nil
-		}
-		// The root stays inline and gains $defs, so $defs holds a copy to avoid a cycle.
-		def := make(map[string]any, len(s))
-		for k, v := range s {
-			def[k] = v
-		}
-		b.defs[b.defName(t)] = def
-	}
 	return s, nil
 }
 
@@ -254,18 +290,34 @@ func nullable(s any) any {
 	if !ok {
 		return s
 	}
-	if t, ok := m["type"].(string); ok {
-		c := make(map[string]any, len(m))
-		for k, v := range m {
-			c[k] = v
-		}
-		c["type"] = []any{t, "null"}
-		return c
-	}
 	if _, ok := m["$ref"]; ok {
 		return map[string]any{"anyOf": []any{m, map[string]any{"type": "null"}}}
 	}
-	return m
+	c := make(map[string]any, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	switch t := c["type"].(type) {
+	case string:
+		c["type"] = []any{t, "null"}
+	case []any:
+		if !contains(t, "null") {
+			c["type"] = append(append([]any(nil), t...), "null")
+		}
+	}
+	if e, ok := c["enum"].([]any); ok && !contains(e, nil) {
+		c["enum"] = append(append([]any(nil), e...), nil)
+	}
+	return c
+}
+
+func contains(list []any, want any) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func deref(t reflect.Type) reflect.Type {
@@ -314,9 +366,25 @@ type field struct {
 	tag      string
 }
 
+// validTagName allows the characters encoding/json has always accepted in a name. Go releases treat
+// other names differently (some drop the field, some cut the name), so they are refused instead.
+func validTagName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", c):
+		case !unicode.IsLetter(c) && !unicode.IsDigit(c):
+			return false
+		}
+	}
+	return true
+}
+
 // structFields lists the fields encoding/json would encode, with its rules for embedded structs: the
 // shallowest name wins, a tagged field beats an untagged one at the same depth, and other ties drop the name.
-func structFields(t reflect.Type) []field {
+func structFields(t reflect.Type) ([]field, error) {
 	type queued struct {
 		typ   reflect.Type
 		index []int
@@ -325,10 +393,15 @@ func structFields(t reflect.Type) []field {
 	}
 	next := []queued{{typ: t}}
 	visited := map[reflect.Type]bool{}
+	// count and nextCount track how often a struct type is embedded at one level. A type embedded
+	// twice gives each field twice, so the tie below drops it, as encoding/json does.
+	var count map[reflect.Type]int
+	nextCount := map[reflect.Type]int{}
 	var all []field
 	for len(next) > 0 {
 		current := next
 		next = nil
+		count, nextCount = nextCount, map[reflect.Type]int{}
 		for _, q := range current {
 			if visited[q.typ] {
 				continue
@@ -349,13 +422,20 @@ func structFields(t reflect.Type) []field {
 					continue
 				}
 				name, opts, _ := strings.Cut(tag, ",")
+				if name != "" && !validTagName(name) {
+					return nil, fmt.Errorf("jsonschema: %s.%s: json tag name %q has characters encoding/json does not handle the same way across Go versions", q.typ, sf.Name, name)
+				}
 				index := append(append([]int(nil), q.index...), i)
 				if name == "" && sf.Anonymous && deref(sf.Type).Kind() == reflect.Struct {
-					next = append(next, queued{
-						typ:        deref(sf.Type),
-						index:      index,
-						viaPointer: q.viaPointer || sf.Type.Kind() == reflect.Pointer,
-					})
+					ft := deref(sf.Type)
+					nextCount[ft]++
+					if nextCount[ft] == 1 {
+						next = append(next, queued{
+							typ:        ft,
+							index:      index,
+							viaPointer: q.viaPointer || sf.Type.Kind() == reflect.Pointer,
+						})
+					}
 					continue
 				}
 				f := field{
@@ -375,7 +455,12 @@ func structFields(t reflect.Type) []field {
 					case "omitempty", "omitzero":
 						f.omit = true
 					case "string":
-						switch deref(sf.Type).Kind() {
+						// Like encoding/json, look through one unnamed pointer and no more.
+						quotedType := sf.Type
+						if quotedType.Name() == "" && quotedType.Kind() == reflect.Pointer {
+							quotedType = quotedType.Elem()
+						}
+						switch quotedType.Kind() {
 						case reflect.Bool, reflect.String,
 							reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 							reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
@@ -385,6 +470,9 @@ func structFields(t reflect.Type) []field {
 					}
 				}
 				all = append(all, f)
+				if count[q.typ] > 1 {
+					all = append(all, f)
+				}
 			}
 		}
 	}
@@ -428,5 +516,5 @@ func structFields(t reflect.Type) []field {
 			out = append(out, taggedTop[0])
 		}
 	}
-	return out
+	return out, nil
 }
