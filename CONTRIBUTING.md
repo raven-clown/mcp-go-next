@@ -41,7 +41,7 @@ The design is in [docs/design.md](docs/design.md), the roadmap in [docs/plans/ro
 
 1. Fork the repository and create a branch named `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `ci/<topic>` or `chore/<topic>`.
 2. Use [Conventional Commits](https://www.conventionalcommits.org/) messages, for example `fix(stdio): read a final line without a newline`.
-3. Add a line to `CHANGELOG.md` under Unreleased for anything users will notice.
+3. Add a line to `CHANGELOG.md` under Unreleased for anything users will notice, ending in your pull request number, such as `(#123)`. The release notes use it to credit you.
 4. Keep one topic per pull request. Small pull requests get reviewed faster.
 5. Fill in the pull request template and link the issue with `Closes #123`.
 
