@@ -15,9 +15,6 @@ const (
 	metaProgressToken      = "progressToken"
 )
 
-// ProgressToken is a JSON string or number, kept exactly as sent.
-type ProgressToken = json.RawMessage
-
 // RequestMeta is the _meta object of a request. Keys it does not know stay in Extra and survive a round trip.
 type RequestMeta struct {
 	ProgressToken      ProgressToken
@@ -57,7 +54,9 @@ func (m *RequestMeta) UnmarshalJSON(b []byte) error {
 		var err error
 		switch k {
 		case metaProgressToken:
-			m.ProgressToken = v
+			if string(v) != "null" {
+				err = json.Unmarshal(v, &m.ProgressToken)
+			}
 		case MetaProtocolVersion:
 			err = json.Unmarshal(v, &m.ProtocolVersion)
 		case MetaClientInfo:

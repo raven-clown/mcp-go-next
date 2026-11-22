@@ -4,103 +4,248 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
-// exampleFactories maps a folder under testdata/2026-07-28/examples to the Go type its files decode into.
-var exampleFactories = map[string]func() any{
-	"ClientCapabilities": func() any { return new(ClientCapabilities) },
-	"ServerCapabilities": func() any { return new(ServerCapabilities) },
+// codec decodes an example into Go types and encodes it again.
+type codec func(in []byte) ([]byte, error)
+
+func plain[T any]() codec {
+	return func(in []byte) ([]byte, error) {
+		v := new(T)
+		if err := json.Unmarshal(in, v); err != nil {
+			return nil, err
+		}
+		return json.Marshal(v)
+	}
 }
 
-// exampleSkipped lists folders whose Go types do not exist yet, with the reason.
-var exampleSkipped = map[string]string{
-	"AudioContent":                          "Task 4",
-	"BlobResourceContents":                  "Task 4",
-	"BooleanSchema":                         "Task 4",
-	"CallToolRequest":                       "Task 4",
-	"CallToolRequestParams":                 "Task 4",
-	"CallToolResult":                        "Task 4",
-	"CallToolResultResponse":                "Task 4",
-	"CancelledNotification":                 "Task 4",
-	"CancelledNotificationParams":           "Task 4",
-	"CompleteRequest":                       "Task 4",
-	"CompleteRequestParams":                 "Task 4",
-	"CompleteResult":                        "Task 4",
-	"CompleteResultResponse":                "Task 4",
-	"CreateMessageRequest":                  "Task 4",
-	"CreateMessageRequestParams":            "Task 4",
-	"CreateMessageResult":                   "Task 4",
-	"DiscoverRequest":                       "Task 4",
-	"DiscoverResult":                        "Task 4",
-	"DiscoverResultResponse":                "Task 4",
-	"ElicitRequest":                         "Task 4",
-	"ElicitRequestFormParams":               "Task 4",
-	"ElicitRequestURLParams":                "Task 4",
-	"ElicitResult":                          "Task 4",
-	"EmbeddedResource":                      "Task 4",
-	"GetPromptRequest":                      "Task 4",
-	"GetPromptRequestParams":                "Task 4",
-	"GetPromptResult":                       "Task 4",
-	"GetPromptResultResponse":               "Task 4",
-	"HeaderMismatchError":                   "Task 4",
-	"ImageContent":                          "Task 4",
-	"InputRequests":                         "Task 4",
-	"InputRequiredResult":                   "Task 4",
-	"InputResponses":                        "Task 4",
-	"InternalError":                         "Task 4",
-	"InvalidParamsError":                    "Task 4",
-	"ListPromptsRequest":                    "Task 4",
-	"ListPromptsResult":                     "Task 4",
-	"ListPromptsResultResponse":             "Task 4",
-	"ListResourceTemplatesRequest":          "Task 4",
-	"ListResourceTemplatesResult":           "Task 4",
-	"ListResourceTemplatesResultResponse":   "Task 4",
-	"ListResourcesRequest":                  "Task 4",
-	"ListResourcesResult":                   "Task 4",
-	"ListResourcesResultResponse":           "Task 4",
-	"ListRootsRequest":                      "Task 4",
-	"ListRootsResult":                       "Task 4",
-	"ListToolsRequest":                      "Task 4",
-	"ListToolsResult":                       "Task 4",
-	"ListToolsResultResponse":               "Task 4",
-	"LoggingMessageNotification":            "Task 4",
-	"LoggingMessageNotificationParams":      "Task 4",
-	"MethodNotFoundError":                   "Task 4",
-	"MissingRequiredClientCapabilityError":  "Task 4",
-	"ModelPreferences":                      "Task 4",
-	"NumberSchema":                          "Task 4",
-	"PaginatedRequestParams":                "Task 4",
-	"ParseError":                            "Task 4",
-	"ProgressNotification":                  "Task 4",
-	"ProgressNotificationParams":            "Task 4",
-	"PromptListChangedNotification":         "Task 4",
-	"ReadResourceRequest":                   "Task 4",
-	"ReadResourceResult":                    "Task 4",
-	"ReadResourceResultResponse":            "Task 4",
-	"Resource":                              "Task 4",
-	"ResourceLink":                          "Task 4",
-	"ResourceListChangedNotification":       "Task 4",
-	"ResourceUpdatedNotification":           "Task 4",
-	"ResourceUpdatedNotificationParams":     "Task 4",
-	"Root":                                  "Task 4",
-	"SamplingMessage":                       "Task 4",
-	"StringSchema":                          "Task 4",
-	"SubscriptionsAcknowledgedNotification": "Task 4",
-	"SubscriptionsListenRequest":            "Task 4",
-	"SubscriptionsListenResult":             "Task 4",
-	"SubscriptionsListenResultResponse":     "Task 4",
-	"TextContent":                           "Task 4",
-	"TextResourceContents":                  "Task 4",
-	"TitledMultiSelectEnumSchema":           "Task 4",
-	"TitledSingleSelectEnumSchema":          "Task 4",
-	"Tool":                                  "Task 4",
-	"ToolListChangedNotification":           "Task 4",
-	"ToolResultContent":                     "Task 4",
-	"ToolUseContent":                        "Task 4",
-	"UnsupportedProtocolVersionError":       "Task 4",
-	"UntitledMultiSelectEnumSchema":         "Task 4",
-	"UntitledSingleSelectEnumSchema":        "Task 4",
+// envelope is a JSON-RPC message as the examples write it. The inner part goes through a Go type.
+type envelope struct {
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   json.RawMessage `json:"error,omitempty"`
+}
+
+func wrapped(inner func(*envelope) (*json.RawMessage, codec)) codec {
+	return func(in []byte) ([]byte, error) {
+		var e envelope
+		if err := json.Unmarshal(in, &e); err != nil {
+			return nil, err
+		}
+		field, c := inner(&e)
+		if len(*field) > 0 {
+			out, err := c(*field)
+			if err != nil {
+				return nil, err
+			}
+			*field = out
+		}
+		return json.Marshal(e)
+	}
+}
+
+func message[P any]() codec {
+	return wrapped(func(e *envelope) (*json.RawMessage, codec) { return &e.Params, plain[P]() })
+}
+
+func response[R any]() codec {
+	return wrapped(func(e *envelope) (*json.RawMessage, codec) { return &e.Result, plain[R]() })
+}
+
+// responseOrInput picks InputRequiredResult when the result asks for input.
+func responseOrInput[R any]() codec {
+	return wrapped(func(e *envelope) (*json.RawMessage, codec) {
+		var probe struct {
+			ResultType ResultType `json:"resultType"`
+		}
+		_ = json.Unmarshal(e.Result, &probe)
+		if probe.ResultType == ResultInputRequired {
+			return &e.Result, plain[InputRequiredResult]()
+		}
+		return &e.Result, plain[R]()
+	})
+}
+
+type errorObject struct {
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+func errorWithData[D any]() codec {
+	return func(in []byte) ([]byte, error) {
+		var e errorObject
+		if err := json.Unmarshal(in, &e); err != nil {
+			return nil, err
+		}
+		if len(e.Data) > 0 {
+			out, err := plain[D]()(e.Data)
+			if err != nil {
+				return nil, err
+			}
+			e.Data = out
+		}
+		return json.Marshal(e)
+	}
+}
+
+func errorResponse(data codec) codec {
+	return wrapped(func(e *envelope) (*json.RawMessage, codec) { return &e.Error, data })
+}
+
+// exampleCodecs maps a folder under testdata/2026-07-28/examples to how its files round-trip.
+var exampleCodecs = map[string]codec{
+	"AudioContent":                          plain[AudioContent](),
+	"BlobResourceContents":                  plain[BlobResourceContents](),
+	"BooleanSchema":                         plain[BooleanSchema](),
+	"CallToolRequest":                       message[CallToolParams](),
+	"CallToolRequestParams":                 plain[CallToolParams](),
+	"CallToolResult":                        plain[CallToolResult](),
+	"CallToolResultResponse":                responseOrInput[CallToolResult](),
+	"CancelledNotification":                 message[CancelledParams](),
+	"CancelledNotificationParams":           plain[CancelledParams](),
+	"ClientCapabilities":                    plain[ClientCapabilities](),
+	"CompleteRequest":                       message[CompleteParams](),
+	"CompleteRequestParams":                 plain[CompleteParams](),
+	"CompleteResult":                        plain[CompleteResult](),
+	"CompleteResultResponse":                response[CompleteResult](),
+	"CreateMessageRequest":                  message[CreateMessageParams](),
+	"CreateMessageRequestParams":            plain[CreateMessageParams](),
+	"CreateMessageResult":                   plain[CreateMessageResult](),
+	"DiscoverRequest":                       message[DiscoverParams](),
+	"DiscoverResult":                        plain[DiscoverResult](),
+	"DiscoverResultResponse":                response[DiscoverResult](),
+	"ElicitRequest":                         message[ElicitParams](),
+	"ElicitRequestFormParams":               plain[ElicitParams](),
+	"ElicitRequestURLParams":                plain[ElicitParams](),
+	"ElicitResult":                          plain[ElicitResult](),
+	"EmbeddedResource":                      plain[EmbeddedResource](),
+	"GetPromptRequest":                      message[GetPromptParams](),
+	"GetPromptRequestParams":                plain[GetPromptParams](),
+	"GetPromptResult":                       plain[GetPromptResult](),
+	"GetPromptResultResponse":               responseOrInput[GetPromptResult](),
+	"HeaderMismatchError":                   errorResponse(errorWithData[json.RawMessage]()),
+	"ImageContent":                          plain[ImageContent](),
+	"InputRequests":                         plain[InputRequests](),
+	"InputRequiredResult":                   plain[InputRequiredResult](),
+	"InputResponses":                        plain[InputResponses](),
+	"InternalError":                         errorWithData[json.RawMessage](),
+	"InvalidParamsError":                    errorWithData[json.RawMessage](),
+	"ListPromptsRequest":                    message[PaginatedParams](),
+	"ListPromptsResult":                     plain[ListPromptsResult](),
+	"ListPromptsResultResponse":             response[ListPromptsResult](),
+	"ListResourceTemplatesRequest":          message[PaginatedParams](),
+	"ListResourceTemplatesResult":           plain[ListResourceTemplatesResult](),
+	"ListResourceTemplatesResultResponse":   response[ListResourceTemplatesResult](),
+	"ListResourcesRequest":                  message[PaginatedParams](),
+	"ListResourcesResult":                   plain[ListResourcesResult](),
+	"ListResourcesResultResponse":           response[ListResourcesResult](),
+	"ListRootsRequest":                      message[ListRootsParams](),
+	"ListRootsResult":                       plain[ListRootsResult](),
+	"ListToolsRequest":                      message[PaginatedParams](),
+	"ListToolsResult":                       plain[ListToolsResult](),
+	"ListToolsResultResponse":               response[ListToolsResult](),
+	"LoggingMessageNotification":            message[LoggingMessageParams](),
+	"LoggingMessageNotificationParams":      plain[LoggingMessageParams](),
+	"MethodNotFoundError":                   errorWithData[json.RawMessage](),
+	"MissingRequiredClientCapabilityError":  errorResponse(errorWithData[MissingCapabilityData]()),
+	"ModelPreferences":                      plain[ModelPreferences](),
+	"NumberSchema":                          plain[NumberSchema](),
+	"PaginatedRequestParams":                plain[PaginatedParams](),
+	"ParseError":                            errorWithData[json.RawMessage](),
+	"ProgressNotification":                  message[ProgressParams](),
+	"ProgressNotificationParams":            plain[ProgressParams](),
+	"PromptListChangedNotification":         message[NotificationParams](),
+	"ReadResourceRequest":                   message[ReadResourceParams](),
+	"ReadResourceResult":                    plain[ReadResourceResult](),
+	"ReadResourceResultResponse":            responseOrInput[ReadResourceResult](),
+	"Resource":                              plain[Resource](),
+	"ResourceLink":                          plain[ResourceLink](),
+	"ResourceListChangedNotification":       message[NotificationParams](),
+	"ResourceUpdatedNotification":           message[ResourceUpdatedParams](),
+	"ResourceUpdatedNotificationParams":     plain[ResourceUpdatedParams](),
+	"Root":                                  plain[Root](),
+	"SamplingMessage":                       plain[SamplingMessage](),
+	"ServerCapabilities":                    plain[ServerCapabilities](),
+	"StringSchema":                          plain[StringSchema](),
+	"SubscriptionsAcknowledgedNotification": message[SubscriptionsAcknowledgedParams](),
+	"SubscriptionsListenRequest":            message[ListenParams](),
+	"SubscriptionsListenResult":             plain[ListenResult](),
+	"SubscriptionsListenResultResponse":     response[ListenResult](),
+	"TextContent":                           plain[TextContent](),
+	"TextResourceContents":                  plain[TextResourceContents](),
+	"TitledMultiSelectEnumSchema":           plain[TitledMultiSelectEnumSchema](),
+	"TitledSingleSelectEnumSchema":          plain[TitledSingleSelectEnumSchema](),
+	"Tool":                                  plain[Tool](),
+	"ToolListChangedNotification":           message[NotificationParams](),
+	"ToolResultContent":                     plain[ToolResultContent](),
+	"ToolUseContent":                        plain[ToolUseContent](),
+	"UnsupportedProtocolVersionError":       errorResponse(errorWithData[UnsupportedVersionData]()),
+	"UntitledMultiSelectEnumSchema":         plain[UntitledMultiSelectEnumSchema](),
+	"UntitledSingleSelectEnumSchema":        plain[UntitledSingleSelectEnumSchema](),
+}
+
+// exampleSkipped lists folders that are not mapped yet, with the reason. Extension and auth types arrive in later phases.
+var exampleSkipped = map[string]string{}
+
+// falseByDefault are keys the spec defines as false when absent, so an explicit false and no key are the same message.
+var falseByDefault = map[string]bool{"isError": true, "hasMore": true}
+
+// exampleDeviations are example files that break the schema. Our output follows the schema, so the
+// listed keys are dropped from our output before comparing, only when they hold their zero value.
+var exampleDeviations = map[string]struct {
+	reason string
+	keys   []string
+}{
+	"ReadResourceResultResponse/read-resource-result-response.json": {
+		reason: "the example omits ttlMs and cacheScope, which ReadResourceResult requires",
+		keys:   []string{"ttlMs", "cacheScope"},
+	},
+}
+
+func dropZeroKeys(v any, keys []string) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for _, k := range keys {
+			if val, ok := x[k]; ok && (val == float64(0) || val == "") {
+				delete(x, k)
+			}
+		}
+		for k, val := range x {
+			x[k] = dropZeroKeys(val, keys)
+		}
+	case []any:
+		for i, val := range x {
+			x[i] = dropZeroKeys(val, keys)
+		}
+	}
+	return v
+}
+
+func normalizeExample(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, val := range x {
+			if b, ok := val.(bool); ok && !b && falseByDefault[k] {
+				continue
+			}
+			out[k] = normalizeExample(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, val := range x {
+			out[i] = normalizeExample(val)
+		}
+		return out
+	}
+	return v
 }
 
 func TestExamplesRoundTrip(t *testing.T) {
@@ -117,10 +262,10 @@ func TestExamplesRoundTrip(t *testing.T) {
 			continue
 		}
 		name := dir.Name()
-		factory, ok := exampleFactories[name]
+		c, ok := exampleCodecs[name]
 		if !ok {
 			if _, skipped := exampleSkipped[name]; !skipped {
-				t.Errorf("example folder %q has no Go type and no skip reason", name)
+				t.Errorf("example folder %q has no codec and no skip reason", name)
 			}
 			continue
 		}
@@ -135,19 +280,28 @@ func TestExamplesRoundTrip(t *testing.T) {
 				if err != nil {
 					t.Fatalf("read: %v", err)
 				}
-				v := factory()
-				if err := json.Unmarshal(in, v); err != nil {
-					t.Fatalf("decode into %T: %v", v, err)
-				}
-				out, err := json.Marshal(v)
+				out, err := c(in)
 				if err != nil {
-					t.Fatalf("encode: %v", err)
+					t.Fatalf("round trip: %v", err)
 				}
-				assertSameJSON(t, in, out)
+				var want, got any
+				if err := json.Unmarshal(in, &want); err != nil {
+					t.Fatalf("example is not JSON: %v", err)
+				}
+				if err := json.Unmarshal(out, &got); err != nil {
+					t.Fatalf("output is not JSON: %v\n%s", err, out)
+				}
+				if dev, ok := exampleDeviations[name+"/"+filepath.Base(file)]; ok {
+					t.Logf("known deviation: %s", dev.reason)
+					got = dropZeroKeys(got, dev.keys)
+				}
+				if !reflect.DeepEqual(normalizeExample(want), normalizeExample(got)) {
+					t.Fatalf("round trip changed the example\n got  %s\n want %s", out, in)
+				}
 			})
 		}
 	}
-	for name := range exampleFactories {
+	for name := range exampleCodecs {
 		if _, ok := exampleSkipped[name]; ok {
 			t.Errorf("folder %q is both mapped and skipped", name)
 		}
