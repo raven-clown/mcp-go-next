@@ -71,7 +71,7 @@ Each cell compares the library with mcp-go-next. "3.0× slower" means it took th
 
 ### Where mcp-go-next does not win
 
-- **Decoding a 1 MiB request against mark3labs:** time and bytes are a tie. Neither difference is significant, and mark3labs allocates 0.64% fewer bytes. Both copy the body once. mcp-go-next makes 11 allocations to mark3labs' 37, but in this run that does not make it measurably faster. An earlier run and an outside reproduction both put mcp-go-next ahead by 4% to 19%, so call it close.
+- **Decoding a 1 MiB request against mark3labs:** time and bytes are a tie. Neither difference is significant, and mark3labs allocates 0.64% fewer bytes. Both copy the body once. mcp-go-next makes 11 allocations to mark3labs' 37, but in this run that does not make it measurably faster. A reproduction during review put mcp-go-next 4% to 19% ahead, so call it close.
 - **Absolute numbers:** times vary between machines and runs, so compare the ratios. The order of the libraries was the same in every run so far.
 - **Other benchmark sets:** the validation number here (3.97 µs) differs from the one in the v0.1.0 notes (about 3 µs). Those notes used `jsonschema/bench_test.go`, which has a different schema and arguments.
 
