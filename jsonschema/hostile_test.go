@@ -3,6 +3,7 @@ package jsonschema
 import (
 	"encoding/json"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,11 +20,22 @@ func mustCompile(t *testing.T, schema string) Schema {
 
 func within(t *testing.T, limit time.Duration, f func()) {
 	t.Helper()
+	limit *= timeScale
 	start := time.Now()
 	f()
 	if d := time.Since(start); d > limit {
 		t.Fatalf("took %v, want under %v", d, limit)
 	}
+}
+
+// allocated reports the bytes f allocates, which unlike time does not depend on the machine.
+func allocated(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
 }
 
 func TestLongNumbersAreBounded(t *testing.T) {
@@ -118,16 +130,53 @@ func TestManyFailuresUnderLongPaths(t *testing.T) {
 	}
 	b.WriteString("[" + strings.TrimSuffix(strings.Repeat(`"x",`, 20_000), ",") + "]")
 	b.WriteString(strings.Repeat("}", 50))
+	instance := json.RawMessage(b.String())
+	// Building each path would allocate about 2.5 MB per failure, so 20,000 failures would need ~50 GB.
+	const limit = 200 << 20
 	s := mustCompile(t, `{"$defs":{"n":{"anyOf":[{"type":"array","items":{"type":"integer"}},{"additionalProperties":{"$ref":"#/$defs/n"}}]}},"additionalProperties":{"$ref":"#/$defs/n"}}`)
-	within(t, 3*time.Second, func() {
-		_ = s.Validate(json.RawMessage(b.String()))
-	})
+	if n := allocated(func() { _ = s.Validate(instance) }); n > limit {
+		t.Errorf("anyOf case allocated %d MB", n>>20)
+	}
 	s = mustCompile(t, `{"$defs":{"n":{"type":["object","array"],"items":{"type":"integer"},"additionalProperties":{"$ref":"#/$defs/n"}}},"$ref":"#/$defs/n"}`)
-	within(t, 3*time.Second, func() {
-		if err := s.Validate(json.RawMessage(b.String())); err == nil {
-			t.Fatal("20,000 bad items passed")
-		}
-	})
+	var err error
+	if n := allocated(func() { err = s.Validate(instance) }); n > limit {
+		t.Errorf("failing case allocated %d MB", n>>20)
+	}
+	if err == nil {
+		t.Fatal("20,000 bad items passed")
+	}
+	if len(err.Error()) > 200_000 {
+		t.Errorf("error message is %d bytes", len(err.Error()))
+	}
+}
+
+func TestReportedPathsAreShort(t *testing.T) {
+	key := strings.Repeat("k", 500)
+	s := mustCompile(t, `{"properties":{"`+key+`":{"properties":{"b":{"type":"string"}}}}}`)
+	err := s.Validate(json.RawMessage(`{"` + key + `":{"b":1}}`))
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if got := err.(*ValidationError).Path; got != "/"+strings.Repeat("k", 64)+".../b" {
+		t.Errorf("path = %q", got)
+	}
+	var b strings.Builder
+	for i := 0; i < 200; i++ {
+		b.WriteString(`{"abcdefghij":`)
+	}
+	b.WriteString(`1` + strings.Repeat("}", 200))
+	s, err = Basic(MaxDepth(300)).Compile(json.RawMessage(`{"additionalProperties":{"$ref":"#"},"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Validate(json.RawMessage(b.String()))
+	if err == nil {
+		t.Fatal("no error")
+	}
+	got := err.(*ValidationError).Path
+	if len(got) > maxPathLen+4 || !strings.HasPrefix(got, "/...") || !strings.HasSuffix(got, "/abcdefghij") {
+		t.Errorf("deep path = %d bytes, %.40q...", len(got), got)
+	}
 }
 
 func TestLongNumberAllowedWhereAnythingIs(t *testing.T) {

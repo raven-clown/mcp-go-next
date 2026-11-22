@@ -459,19 +459,43 @@ type path struct {
 func (p *path) child(key string) path { return path{parent: p, key: key, index: -1} }
 func (p *path) item(i int) path       { return path{parent: p, index: i} }
 
+const (
+	// maxSegmentLen and maxPathLen keep a reported path small, so a peer cannot grow error
+	// messages with long keys. Longer keys are cut, and root-side segments are dropped first.
+	maxSegmentLen = 64
+	maxPathLen    = 1024
+)
+
 func (p *path) String() string {
 	if p == nil {
 		return ""
 	}
 	var parts []string
+	size := 0
+	truncated := false
 	for c := p; c != nil; c = c.parent {
+		var seg string
 		if c.index >= 0 {
-			parts = append(parts, strconv.Itoa(c.index))
+			seg = strconv.Itoa(c.index)
 		} else {
-			parts = append(parts, escapePointer(c.key))
+			key := c.key
+			if len(key) > maxSegmentLen {
+				key = strings.ToValidUTF8(key[:maxSegmentLen], "") + "..."
+			}
+			seg = escapePointer(key)
 		}
+		if size+len(seg)+1 > maxPathLen {
+			truncated = true
+			break
+		}
+		parts = append(parts, seg)
+		size += len(seg) + 1
 	}
 	var b strings.Builder
+	b.Grow(size + 4)
+	if truncated {
+		b.WriteString("/...")
+	}
 	for i := len(parts) - 1; i >= 0; i-- {
 		b.WriteByte('/')
 		b.WriteString(parts[i])
