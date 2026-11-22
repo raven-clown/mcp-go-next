@@ -2,7 +2,6 @@ package jsonschema
 
 import (
 	"bytes"
-	"container/heap"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -460,19 +459,43 @@ type path struct {
 func (p *path) child(key string) path { return path{parent: p, key: key, index: -1} }
 func (p *path) item(i int) path       { return path{parent: p, index: i} }
 
+const (
+	// maxSegmentLen and maxPathLen keep a reported path small, so a peer cannot grow error
+	// messages with long keys. Longer keys are cut, and root-side segments are dropped first.
+	maxSegmentLen = 64
+	maxPathLen    = 1024
+)
+
 func (p *path) String() string {
 	if p == nil {
 		return ""
 	}
 	var parts []string
+	size := 0
+	truncated := false
 	for c := p; c != nil; c = c.parent {
+		var seg string
 		if c.index >= 0 {
-			parts = append(parts, strconv.Itoa(c.index))
+			seg = strconv.Itoa(c.index)
 		} else {
-			parts = append(parts, escapePointer(c.key))
+			key := c.key
+			if len(key) > maxSegmentLen {
+				key = strings.ToValidUTF8(key[:maxSegmentLen], "") + "..."
+			}
+			seg = escapePointer(key)
 		}
+		if size+len(seg)+1 > maxPathLen {
+			truncated = true
+			break
+		}
+		parts = append(parts, seg)
+		size += len(seg) + 1
 	}
 	var b strings.Builder
+	b.Grow(size + 4)
+	if truncated {
+		b.WriteString("/...")
+	}
 	for i := len(parts) - 1; i >= 0; i-- {
 		b.WriteByte('/')
 		b.WriteString(parts[i])
@@ -485,31 +508,21 @@ type run struct {
 	steps    int
 	stopped  bool
 	failures int
-	// errs keeps the maxErrors smallest errors by path and message, as a max-heap, so the errors
-	// reported do not depend on map order.
-	errs errHeap
+	// errs holds the first maxErrors errors. Later failures are only counted, so their paths are
+	// never built.
+	errs []*ValidationError
 	// muted counts anyOf branches being tried, whose failures are counted but not reported.
 	muted int
+	// sorted walks object keys in order. It is used for a second pass when the cap was hit, so the
+	// errors reported do not depend on map order.
+	sorted bool
 }
-
-type errHeap []*ValidationError
 
 func errLess(a, b *ValidationError) bool {
 	if a.Path != b.Path {
 		return a.Path < b.Path
 	}
 	return a.Message < b.Message
-}
-
-func (h errHeap) Len() int           { return len(h) }
-func (h errHeap) Less(i, j int) bool { return errLess(h[j], h[i]) }
-func (h errHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *errHeap) Push(x any)        { *h = append(*h, x.(*ValidationError)) }
-func (h *errHeap) Pop() any {
-	old := *h
-	x := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return x
 }
 
 func (s *compiled) Validate(instance json.RawMessage) error {
@@ -522,10 +535,14 @@ func (s *compiled) Validate(instance json.RawMessage) error {
 	}
 	r := &run{cfg: s.cfg}
 	r.validate(s.root, v, nil, 0)
+	if !r.stopped && r.failures > maxErrors {
+		// Which errors come first depends on map order, so walk again with sorted keys.
+		r = &run{cfg: s.cfg, sorted: true}
+		r.validate(s.root, v, nil, 0)
+	}
 	if r.stopped {
 		return &ValidationError{Message: fmt.Sprintf("validation stopped after %d steps", s.cfg.maxSteps)}
 	}
-	// Objects are walked in map order, so errors are sorted once here to keep output stable.
 	sort.Slice(r.errs, func(i, j int) bool { return errLess(r.errs[i], r.errs[j]) })
 	out := make([]error, 0, len(r.errs)+1)
 	for _, e := range r.errs {
@@ -545,18 +562,10 @@ func (s *compiled) Validate(instance json.RawMessage) error {
 
 func (r *run) fail(p *path, format string, args ...any) {
 	r.failures++
-	if r.muted > 0 {
+	if r.muted > 0 || len(r.errs) >= maxErrors {
 		return
 	}
-	e := &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)}
-	if len(r.errs) < maxErrors {
-		heap.Push(&r.errs, e)
-		return
-	}
-	if errLess(e, r.errs[0]) {
-		r.errs[0] = e
-		heap.Fix(&r.errs, 0)
-	}
+	r.errs = append(r.errs, &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)})
 }
 
 // passes runs n silently and reports whether it added no failure.
@@ -669,28 +678,57 @@ func (r *run) object(n *node, x map[string]any, p *path, depth int) {
 	if n.properties == nil && n.patternProps == nil && n.additional == nil {
 		return
 	}
+	if r.sorted {
+		// Sorting costs about as much as walking the keys again, so it is charged first.
+		if !r.charge(len(x)) {
+			return
+		}
+		for _, key := range sortedKeys(x) {
+			r.property(n, key, x[key], p, depth)
+			if r.stopped {
+				return
+			}
+		}
+		return
+	}
 	for key, value := range x {
-		at := p.child(key)
-		matched := false
-		if s, ok := n.properties[key]; ok {
-			r.validate(s, value, &at, depth+1)
-			matched = true
-		}
-		for _, ps := range n.patternProps {
-			if ps.re.MatchString(key) {
-				r.validate(ps.n, value, &at, depth+1)
-				matched = true
-			}
-		}
-		if !matched && n.additional != nil {
-			if n.additional.always != nil && !*n.additional.always {
-				r.fail(&at, "property is not allowed")
-			} else {
-				r.validate(n.additional, value, &at, depth+1)
-			}
-		}
+		r.property(n, key, value, p, depth)
 		if r.stopped {
 			return
+		}
+	}
+}
+
+// charge counts work that is not a schema evaluation, such as walking a key, against MaxSteps.
+func (r *run) charge(n int) bool {
+	r.steps += n
+	if r.steps > r.cfg.maxSteps {
+		r.stopped = true
+	}
+	return !r.stopped
+}
+
+func (r *run) property(n *node, key string, value any, p *path, depth int) {
+	if !r.charge(1 + len(n.patternProps)) {
+		return
+	}
+	at := p.child(key)
+	matched := false
+	if s, ok := n.properties[key]; ok {
+		r.validate(s, value, &at, depth+1)
+		matched = true
+	}
+	for _, ps := range n.patternProps {
+		if ps.re.MatchString(key) {
+			r.validate(ps.n, value, &at, depth+1)
+			matched = true
+		}
+	}
+	if !matched && n.additional != nil {
+		if n.additional.always != nil && !*n.additional.always {
+			r.fail(&at, "property is not allowed")
+		} else {
+			r.validate(n.additional, value, &at, depth+1)
 		}
 	}
 }
