@@ -164,7 +164,7 @@ func TestMemoryStoreExpiredEntries(t *testing.T) {
 	ctx := context.Background()
 	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
 	var expired []string
-	s := newMemoryStore(0, clock.Now, func(id string) { expired = append(expired, id) })
+	s := newMemoryStore(0, 0, clock.Now, func(id string) { expired = append(expired, id) })
 	for _, id := range []string{"a", "b"} {
 		if err := s.Put(ctx, id, "o", []byte(`1`), time.Minute); err != nil {
 			t.Fatal(err)
@@ -185,6 +185,140 @@ func TestMemoryStoreExpiredEntries(t *testing.T) {
 	}
 	if len(expired) != 2 || expired[0] != "a" || expired[1] != "b" {
 		t.Fatalf("OnExpire calls = %v", expired)
+	}
+}
+
+func TestMemoryStoreUpdateKeepsOwner(t *testing.T) {
+	ctx := context.Background()
+	s := newMemoryStore(0, 0, time.Now, nil)
+	if err := s.Put(ctx, "a", "alice", []byte(`1`), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put(ctx, "a", "mallory", []byte(`2`), 0); err != nil {
+		t.Fatal(err)
+	}
+	owner, value, err := s.Get(ctx, "a")
+	if err != nil || owner != "alice" || string(value) != `2` {
+		t.Fatalf("Get = %q, %s, %v", owner, value, err)
+	}
+	if err := s.Put(ctx, "b", "alice", []byte(`1`), -time.Second); err == nil {
+		t.Fatal("Put accepted a negative TTL")
+	}
+}
+
+func TestHandleOwnerLimit(t *testing.T) {
+	ctx := context.Background()
+	var evicted []string
+	h := NewHandles[cart](HandleOwnerLimit(2), OnExpire(func(id string) { evicted = append(evicted, id) }))
+	alice := requestAs("https://idp.example", "alice")
+	bob := requestAs("https://idp.example", "bob")
+	bobID, _ := h.Create(ctx, bob, cart{})
+	var ids []string
+	for range 5 {
+		id, err := h.Create(ctx, alice, cart{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if _, err := h.Get(ctx, bob, bobID); err != nil {
+		t.Fatalf("alice's handles evicted bob's: %v", err)
+	}
+	for i, id := range ids {
+		_, err := h.Get(ctx, alice, id)
+		if kept := i >= 3; kept != (err == nil) {
+			t.Fatalf("alice's handle %d: err %v, want kept = %v", i, err, kept)
+		}
+	}
+	if len(evicted) != 3 || evicted[0] != ids[0] || evicted[2] != ids[2] {
+		t.Fatalf("OnExpire calls = %v", evicted)
+	}
+}
+
+func TestHandleNoSubject(t *testing.T) {
+	ctx := context.Background()
+	h := NewHandles[cart]()
+	owner := requestAs("https://idp.example", "alice")
+	id, _ := h.Create(ctx, owner, cart{})
+	for _, p := range []Principal{{Issuer: "https://idp.example"}, {}} {
+		req := newTestRequest("tools/call")
+		req.SetPrincipal(p)
+		if _, err := h.Create(ctx, req, cart{}); !errors.Is(err, ErrNoSubject) {
+			t.Fatalf("Create as %+v = %v", p, err)
+		}
+		if _, err := h.Get(ctx, req, id); !errors.Is(err, ErrNoSubject) {
+			t.Fatalf("Get as %+v = %v", p, err)
+		}
+		if err := h.Update(ctx, req, id, cart{}); !errors.Is(err, ErrNoSubject) {
+			t.Fatalf("Update as %+v = %v", p, err)
+		}
+		if err := h.Delete(ctx, req, id); !errors.Is(err, ErrNoSubject) {
+			t.Fatalf("Delete as %+v = %v", p, err)
+		}
+	}
+}
+
+func TestHandleExpiresWhenIdle(t *testing.T) {
+	expired := make(chan string, 1)
+	h := NewHandles[cart](HandleTTL(20*time.Millisecond), OnExpire(func(id string) { expired <- id }))
+	id, err := h.Create(context.Background(), requestAs("https://idp.example", "alice"), cart{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-expired:
+		if got != id {
+			t.Fatalf("OnExpire(%q), want %q", got, id)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnExpire did not run on an idle store")
+	}
+}
+
+func TestOnExpirePanicRunsTheRest(t *testing.T) {
+	var called []string
+	s := newMemoryStore(0, 0, time.Now, func(id string) {
+		called = append(called, id)
+		if id == "a" {
+			panic("release failed")
+		}
+	})
+	defer func() {
+		if p := recover(); p != "release failed" {
+			t.Fatalf("recovered %v, want the callback's panic", p)
+		}
+		if len(called) != 2 {
+			t.Fatalf("callbacks run = %v, want both", called)
+		}
+	}()
+	s.fire([]string{"a", "b"})
+}
+
+func TestHandleSameIDConcurrent(t *testing.T) {
+	ctx := context.Background()
+	h := NewHandles[cart]()
+	req := requestAs("https://idp.example", "alice")
+	id, _ := h.Create(ctx, req, cart{Items: []string{"x"}})
+	var wg sync.WaitGroup
+	for i := range 16 {
+		wg.Go(func() {
+			for range 200 {
+				switch i % 3 {
+				case 0:
+					_, _ = h.Get(ctx, req, id)
+				case 1:
+					_ = h.Update(ctx, req, id, cart{Items: []string{"y", "z"}})
+				default:
+					if _, err := h.Get(ctx, req, id); err == nil {
+						_ = h.Update(ctx, req, id, cart{})
+					}
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if err := h.Delete(ctx, req, id); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -361,7 +495,7 @@ func TestHandleBadStoredValue(t *testing.T) {
 	ctx := context.Background()
 	store := &recordingStore{entries: map[string]storePut{}}
 	req := requestAs("https://idp.example", "alice")
-	store.entries["bad"] = storePut{id: "bad", owner: req.owner(), value: []byte(`{"items":5}`), ttl: time.Hour}
+	store.entries["bad"] = storePut{id: "bad", owner: "19:https://idp.example alice", value: []byte(`{"items":5}`), ttl: time.Hour}
 	h := NewHandles[cart](WithHandleStore(store))
 	if _, err := h.Get(ctx, req, "bad"); err == nil || errors.Is(err, ErrHandleNotFound) {
 		t.Fatalf("Get of an undecodable value = %v", err)

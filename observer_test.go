@@ -66,6 +66,33 @@ func TestObserver(t *testing.T) {
 	}
 }
 
+type panickingObserver struct{}
+
+func (panickingObserver) OnStart(context.Context, *Request) { panic("start") }
+func (panickingObserver) OnEnd(context.Context, *Request, protocol.Result, error, time.Duration) {
+	panic("end")
+}
+
+func TestObserverPanicIsLogged(t *testing.T) {
+	var logged []error
+	o := &recordingObserver{}
+	s := NewServer(Info{Name: "t", Version: "1"},
+		WithErrorLog(func(err error) { logged = append(logged, err) }),
+		WithObserver(panickingObserver{}), WithObserver(o))
+	called := false
+	s.HandleMethod("x.example/echo", echoHandler(&called))
+	resp := HandleMessage(context.Background(), s, requestMessage(t, 1, "x.example/echo", `{}`), nil, nil)
+	if resp == nil || resp.Error != nil || !called {
+		t.Fatalf("response = %+v, handler called = %v", resp, called)
+	}
+	if len(o.starts) != 1 || len(o.ends) != 1 {
+		t.Fatalf("the second observer saw starts %v, ends %d", o.starts, len(o.ends))
+	}
+	if len(logged) != 2 {
+		t.Fatalf("logged %d errors, want 2", len(logged))
+	}
+}
+
 func TestObserverSeesVersionErrors(t *testing.T) {
 	o := &recordingObserver{}
 	s := NewServer(Info{Name: "t", Version: "1"}, WithObserver(o), WithObserver(o))

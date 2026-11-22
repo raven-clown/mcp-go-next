@@ -24,15 +24,11 @@ func (r *Request) SetPrincipal(p Principal) {
 	r.principal = &p
 }
 
-// Principal returns the principal auth middleware set, and false when none did.
+// Principal returns the principal auth middleware set, and false when none did. Scopes and Claims
+// are shared with the request, so treat them as read-only.
 func (r *Request) Principal() (Principal, bool) {
 	if r == nil || r.principal == nil {
 		return Principal{}, false
 	}
 	return *r.principal, true
-}
-
-func (r *Request) owner() string {
-	p, _ := r.Principal()
-	return p.Owner()
 }

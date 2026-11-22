@@ -167,14 +167,25 @@ func (s *Server) Handle(ctx context.Context, req *Request) (protocol.Result, err
 	}
 	start := time.Now()
 	for _, o := range s.cfg.observers {
-		o.OnStart(ctx, req)
+		s.observe(req, func() { o.OnStart(ctx, req) })
 	}
 	res, err := s.serve(ctx, req)
 	d := time.Since(start)
 	for _, o := range s.cfg.observers {
-		o.OnEnd(ctx, req, res, err, d)
+		s.observe(req, func() { o.OnEnd(ctx, req, res, err, d) })
 	}
 	return res, err
+}
+
+// observe runs one observer call. A panic there is logged and changes nothing for the client or
+// for the other observers.
+func (s *Server) observe(req *Request, call func()) {
+	defer func() {
+		if p := recover(); p != nil {
+			s.logError(fmt.Errorf("mcp: observer panic on %s: %v\n%s", req.Method, p, debug.Stack()))
+		}
+	}()
+	call()
 }
 
 func (s *Server) serve(ctx context.Context, req *Request) (res protocol.Result, err error) {
