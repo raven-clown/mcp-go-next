@@ -79,17 +79,34 @@ func Decode(b []byte) (*Message, error) {
 		}
 		m.Result = result
 	case hasError:
-		var e struct {
-			Code    *int            `json:"code"`
-			Message *string         `json:"message"`
-			Data    json.RawMessage `json:"data"`
-		}
-		if len(rawError) == 0 || rawError[0] != '{' || json.Unmarshal(rawError, &e) != nil || e.Code == nil || e.Message == nil {
+		e, ok := decodeError(rawError)
+		if !ok {
 			return nil, invalid("error must be an object with an integer code and a message")
 		}
-		m.Error = &Error{Code: *e.Code, Message: *e.Message, Data: e.Data}
+		m.Error = e
 	default:
 		return nil, invalid("a message needs a method, a result or an error")
 	}
 	return m, nil
+}
+
+// decodeError matches the error object's keys exactly, like the envelope.
+func decodeError(raw json.RawMessage) (*Error, bool) {
+	var fields map[string]json.RawMessage
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &fields) != nil {
+		return nil, false
+	}
+	rawCode, okCode := fields["code"]
+	rawMessage, okMessage := fields["message"]
+	if !okCode || !okMessage {
+		return nil, false
+	}
+	e := &Error{Data: fields["data"]}
+	if json.Unmarshal(rawCode, &e.Code) != nil || json.Unmarshal(rawMessage, &e.Message) != nil {
+		return nil, false
+	}
+	if bytes.Equal(rawMessage, null) || bytes.Equal(rawCode, null) {
+		return nil, false
+	}
+	return e, true
 }
