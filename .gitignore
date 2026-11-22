@@ -1,4 +1,5 @@
 /dist/
 coverage.out
+bench/bench.txt
 *.exe
 *.test

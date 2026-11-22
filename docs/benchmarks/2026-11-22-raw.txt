@@ -1,0 +1,142 @@
+goos: windows
+goarch: amd64
+pkg: github.com/raven-clown/mcp-go-next/bench
+cpu: Intel(R) Core(TM) i7-14700
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1435530	       835.0 ns/op	 439.55 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1416014	       845.8 ns/op	 433.93 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1433485	       836.4 ns/op	 438.78 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1434244	       836.1 ns/op	 438.92 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1420479	       843.4 ns/op	 435.14 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1446330	       830.9 ns/op	 441.71 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1432478	       837.0 ns/op	 438.46 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mcp-go-next-28         	 1433791	       837.2 ns/op	 438.35 MB/s	     867 B/op	      10 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  150746	      8390 ns/op	  43.74 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  153375	      8242 ns/op	  44.53 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  134892	      8448 ns/op	  43.44 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  166987	      8528 ns/op	  43.03 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  148654	      8486 ns/op	  43.25 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  144928	      8272 ns/op	  44.37 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  128721	      8364 ns/op	  43.88 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=go-sdk-28              	  124188	      8454 ns/op	  43.41 MB/s	   66208 B/op	      12 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  267480	      5268 ns/op	  69.67 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  235712	      5007 ns/op	  73.30 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  241828	      5582 ns/op	  65.74 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  260844	      5359 ns/op	  68.49 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  193294	      5501 ns/op	  66.71 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  265468	      5508 ns/op	  66.63 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  227023	      5398 ns/op	  67.98 MB/s	    2628 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=small/lib=mark3labs-28           	  263365	      5664 ns/op	  64.79 MB/s	    2629 B/op	      58 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1798	    935278 ns/op	1121.37 MB/s	 1059414 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1495	    970041 ns/op	1081.18 MB/s	 1059392 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1515	   1015639 ns/op	1032.64 MB/s	 1059468 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1238	    984611 ns/op	1065.18 MB/s	 1059349 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1917	    990767 ns/op	1058.56 MB/s	 1059434 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1352	   1049750 ns/op	 999.09 MB/s	 1059346 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	    1562	    919992 ns/op	1140.00 MB/s	 1059581 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mcp-go-next-28          	     980	   1222641 ns/op	 857.81 MB/s	 1059463 B/op	      11 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     475	   2543922 ns/op	 412.27 MB/s	 5256924 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     548	   1993114 ns/op	 526.21 MB/s	 5256758 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     531	   2280846 ns/op	 459.82 MB/s	 5256813 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     643	   2073286 ns/op	 505.86 MB/s	 5256535 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     648	   1935017 ns/op	 542.01 MB/s	 5256745 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     688	   2171089 ns/op	 483.07 MB/s	 5256878 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     463	   2574658 ns/op	 407.35 MB/s	 5256918 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=go-sdk-28               	     602	   2380805 ns/op	 440.52 MB/s	 5256757 B/op	      45 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	     984	   1068302 ns/op	 981.74 MB/s	 1052701 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1082	   1130904 ns/op	 927.39 MB/s	 1052627 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1237	   1071952 ns/op	 978.39 MB/s	 1052578 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1224	   1145073 ns/op	 915.92 MB/s	 1052590 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1140	   1116248 ns/op	 939.57 MB/s	 1052583 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1226	    992118 ns/op	1057.12 MB/s	 1052634 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	    1560	    977192 ns/op	1073.27 MB/s	 1052593 B/op	      37 allocs/op
+BenchmarkDecodeToolCall/size=1MiB/lib=mark3labs-28            	     895	   1149100 ns/op	 912.71 MB/s	 1052624 B/op	      37 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  380469	      3976 ns/op	  42.00 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  547932	      4054 ns/op	  41.20 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  355262	      3888 ns/op	  42.96 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  244502	      4243 ns/op	  39.36 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  336583	      3953 ns/op	  42.25 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  404055	      3874 ns/op	  43.11 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  434856	      4160 ns/op	  40.14 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=mcp-go-next-28                  	  421890	      3811 ns/op	  43.82 MB/s	    2232 B/op	      67 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   24772	     48433 ns/op	   3.45 MB/s	   40075 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   19808	     54085 ns/op	   3.09 MB/s	   40077 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   28554	     49644 ns/op	   3.36 MB/s	   40075 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   19069	     55189 ns/op	   3.03 MB/s	   40072 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   29316	     43087 ns/op	   3.88 MB/s	   40074 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   20486	     52917 ns/op	   3.16 MB/s	   40072 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   28407	     40870 ns/op	   4.09 MB/s	   40075 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=go-sdk-28                       	   27548	     41981 ns/op	   3.98 MB/s	   40069 B/op	     247 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  138156	     10654 ns/op	  15.67 MB/s	    5903 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  138680	      8624 ns/op	  19.37 MB/s	    5903 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  155745	      9065 ns/op	  18.42 MB/s	    5903 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  119887	      8615 ns/op	  19.38 MB/s	    5903 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  120915	      8612 ns/op	  19.39 MB/s	    5902 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  139126	      8401 ns/op	  19.88 MB/s	    5903 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  140928	      8140 ns/op	  20.52 MB/s	    5902 B/op	     123 allocs/op
+BenchmarkValidateToolArgs/lib=mark3labs-28                    	  127480	      8499 ns/op	  19.65 MB/s	    5902 B/op	     123 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     566	   2108748 ns/op	  47.42 MB/s	 2600020 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     644	   1924508 ns/op	  51.96 MB/s	 2600020 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     604	   1911998 ns/op	  52.30 MB/s	 2600021 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     628	   2021300 ns/op	  49.47 MB/s	 2600020 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     666	   1952009 ns/op	  51.23 MB/s	 2600028 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     600	   2121997 ns/op	  47.13 MB/s	 2600022 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     529	   2167618 ns/op	  46.13 MB/s	 2600023 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=mcp-go-next-28                 	     495	   2212366 ns/op	  45.20 MB/s	 2600021 B/op	   45016 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     242	   4978886 ns/op	  20.09 MB/s	 6480438 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     248	   4814282 ns/op	  20.77 MB/s	 6480416 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     235	   5143514 ns/op	  19.44 MB/s	 6480510 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     236	   5288694 ns/op	  18.91 MB/s	 6480449 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     229	   5003069 ns/op	  19.99 MB/s	 6480489 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     230	   5014981 ns/op	  19.94 MB/s	 6480454 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     225	   5175016 ns/op	  19.32 MB/s	 6480576 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=go-sdk-28                      	     232	   5370864 ns/op	  18.62 MB/s	 6480532 B/op	  125033 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     193	   6227205 ns/op	  16.06 MB/s	 6279769 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     190	   6190118 ns/op	  16.15 MB/s	 6279739 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     188	   6363864 ns/op	  15.71 MB/s	 6279495 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     181	   6653115 ns/op	  15.03 MB/s	 6279606 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     180	   6709583 ns/op	  14.90 MB/s	 6279837 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     174	   6734971 ns/op	  14.85 MB/s	 6279736 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     181	   6574301 ns/op	  15.21 MB/s	 6279568 B/op	  129955 allocs/op
+BenchmarkValidateArray5000/lib=mark3labs-28                   	     186	   6467005 ns/op	  15.46 MB/s	 6279718 B/op	  129955 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   51889	     20891 ns/op	   16382 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   54387	     21113 ns/op	   16386 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   50899	     22722 ns/op	   16385 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   54975	     22745 ns/op	   16384 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   56948	     21542 ns/op	   16384 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   56809	     22187 ns/op	   16383 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   55065	     21133 ns/op	   16384 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=mcp-go-next-28                     	   49260	     21638 ns/op	   16383 B/op	     258 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   12360	     97176 ns/op	   58303 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   10000	    100994 ns/op	   58302 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   12489	     95942 ns/op	   58299 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   12202	     98968 ns/op	   58304 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   10000	    100895 ns/op	   58318 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   12126	     98844 ns/op	   58306 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   10000	    100452 ns/op	   58303 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=go-sdk-28                          	   12174	     98488 ns/op	   58307 B/op	    1467 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    124404 ns/op	  113736 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    127599 ns/op	  113726 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    121083 ns/op	  113734 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    122025 ns/op	  113736 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    119271 ns/op	  113727 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    118740 ns/op	  113739 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    118081 ns/op	  113727 B/op	    1762 allocs/op
+BenchmarkCompileSchema/lib=mark3labs-28                       	   10000	    118964 ns/op	  113740 B/op	    1762 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  114416	     10886 ns/op	   14997 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  108940	     10684 ns/op	   14998 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  102676	     10651 ns/op	   14998 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  111301	     10694 ns/op	   14998 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  102922	     10980 ns/op	   14998 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  110534	     11664 ns/op	   14999 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  108976	     11223 ns/op	   14997 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=mcp-go-next-28                       	  110524	     11232 ns/op	   14997 B/op	     100 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   25627	     47791 ns/op	   43295 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   24162	     48844 ns/op	   43295 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   25561	     47635 ns/op	   43295 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   25328	     47917 ns/op	   43295 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   22892	     50528 ns/op	   43296 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   25032	     46873 ns/op	   43295 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   27090	     46233 ns/op	   43293 B/op	     318 allocs/op
+BenchmarkInferSchema/lib=go-sdk+mark3labs-28                  	   26425	     45366 ns/op	   43295 B/op	     318 allocs/op
+PASS
+ok  	github.com/raven-clown/mcp-go-next/bench	169.730s

@@ -1,5 +1,13 @@
 version: 2
 updates:
+  # Keeps the libraries compared against current, so the benchmarks stay honest.
+  - package-ecosystem: gomod
+    directory: /bench
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
   - package-ecosystem: github-actions
     directory: /
     schedule:
