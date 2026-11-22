@@ -8,6 +8,8 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-22
+
 ### Changed
 
 - `jsonrpc.Decode` reads the envelope in one pass and copies only the fields it keeps. A small `tools/call` decodes in under 1 µs with 10 allocations, about half the time it took before. A 1 MiB request now decodes as fast as mark3labs/mcp-go, where it was slower before. The numbers are in `docs/benchmarks.md`. (#75)
@@ -51,5 +53,6 @@ The first building blocks. There is no server or client yet: this release has th
   - Typical tool arguments validate in about 3 µs.
   - (#71, #72)
 
-[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raven-clown/mcp-go-next/releases/tag/v0.1.0
