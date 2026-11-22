@@ -10,7 +10,7 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ### Changed
 
-- `jsonrpc.Decode` reads the envelope in one pass and copies only the fields it keeps. A small `tools/call` decodes in about 1 µs with 10 allocations, down from 2 µs. A 1 MiB request decodes in about 1.1 ms, down from 1.5 ms, now ahead of mark3labs/mcp-go. (#75)
+- `jsonrpc.Decode` reads the envelope in one pass and copies only the fields it keeps. A small `tools/call` decodes in under 1 µs with 10 allocations, about half the time it took before. A 1 MiB request now decodes as fast as mark3labs/mcp-go, where it was about 35% slower. The numbers are in `docs/benchmarks.md`. (#75)
 
 ### Added
 

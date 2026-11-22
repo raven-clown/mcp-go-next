@@ -3,20 +3,22 @@
 //
 // Both other libraries build schemas with github.com/google/jsonschema-go. To validate tool
 // arguments, go-sdk uses jsonschema-go and mark3labs uses github.com/santhosh-tekuri/jsonschema/v6.
-// Each benchmark starts from the raw bytes a server receives and measures only the library's
-// validator core. Their servers do more per call (mark3labs hashes the schema with SHA-256 to find
-// its cache entry), so these numbers favor them.
+// Each benchmark starts from the raw bytes a server receives. go-sdk's validation is mirrored step
+// for step from its source. mark3labs' is its validator core only: its server also hashes the schema
+// with SHA-256 on every call to find the cached validator, so its numbers favor it.
 package bench
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	gojs "github.com/google/jsonschema-go/jsonschema"
 	"github.com/raven-clown/mcp-go-next/jsonschema"
 	santhosh "github.com/santhosh-tekuri/jsonschema/v6"
+	segmentio "github.com/segmentio/encoding/json"
 )
 
 // searchArgs looks like the input of a typical tool that wraps an API.
@@ -70,7 +72,15 @@ func ours(tb testing.TB, schema []byte) validator {
 	return func(instance []byte) error { return s.Validate(instance) }
 }
 
-// goSDK mirrors go-sdk: jsonschema-go resolves the schema once, and each call unmarshals then validates.
+// goSDK mirrors applySchema in go-sdk v1.8.0 mcp/tool.go, step for step:
+//  1. its depth scan
+//  2. segmentio/encoding/json decoding
+//  3. ApplyDefaults for objects
+//  4. Validate
+//  5. a json.Marshal of the result when defaults were applied
+//
+// Tool arguments are always objects. The array case follows the path go-sdk takes for non-object
+// values, which skips defaults.
 func goSDK(tb testing.TB, schema []byte) validator {
 	tb.Helper()
 	var s gojs.Schema
@@ -82,12 +92,64 @@ func goSDK(tb testing.TB, schema []byte) validator {
 		tb.Fatal(err)
 	}
 	return func(instance []byte) error {
-		var v any
-		if err := json.Unmarshal(instance, &v); err != nil {
+		if err := checkMaxDepth(instance, 1000); err != nil {
 			return err
 		}
-		return resolved.Validate(v)
+		dec := segmentio.NewDecoder(bytes.NewReader(instance))
+		dec.DontMatchCaseInsensitiveStructFields()
+		var v any
+		if len(instance) > 0 && instance[0] == '{' {
+			m := map[string]any{}
+			if err := dec.Decode(&m); err != nil {
+				return err
+			}
+			v = m
+			if err := resolved.ApplyDefaults(&v); err != nil {
+				return err
+			}
+			if err := resolved.Validate(&v); err != nil {
+				return err
+			}
+			_, err := json.Marshal(v)
+			return err
+		}
+		if err := dec.Decode(&v); err != nil {
+			return err
+		}
+		return resolved.Validate(&v)
 	}
+}
+
+// checkMaxDepth is go-sdk's internal/json depth scan, which runs before every decode.
+func checkMaxDepth(data []byte, maxDepth int) error {
+	depth, inString, escaped := 0, false, false
+	for _, b := range data {
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case b == '\\':
+				escaped = true
+			case b == '"':
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				return errors.New("json: exceeded maximum nesting depth")
+			}
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return nil
 }
 
 // mark3labs mirrors mark3labs/mcp-go: santhosh-tekuri compiles the schema once, and each call
