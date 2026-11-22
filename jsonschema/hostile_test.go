@@ -109,6 +109,27 @@ func TestCappedErrorsAreStable(t *testing.T) {
 	}
 }
 
+// Failures past the error cap must not build their long paths.
+func TestManyFailuresUnderLongPaths(t *testing.T) {
+	key := strings.Repeat("k", 50_000)
+	var b strings.Builder
+	for i := 0; i < 50; i++ {
+		b.WriteString(`{"` + key + `":`)
+	}
+	b.WriteString("[" + strings.TrimSuffix(strings.Repeat(`"x",`, 20_000), ",") + "]")
+	b.WriteString(strings.Repeat("}", 50))
+	s := mustCompile(t, `{"$defs":{"n":{"anyOf":[{"type":"array","items":{"type":"integer"}},{"additionalProperties":{"$ref":"#/$defs/n"}}]}},"additionalProperties":{"$ref":"#/$defs/n"}}`)
+	within(t, 3*time.Second, func() {
+		_ = s.Validate(json.RawMessage(b.String()))
+	})
+	s = mustCompile(t, `{"$defs":{"n":{"type":["object","array"],"items":{"type":"integer"},"additionalProperties":{"$ref":"#/$defs/n"}}},"$ref":"#/$defs/n"}`)
+	within(t, 3*time.Second, func() {
+		if err := s.Validate(json.RawMessage(b.String())); err == nil {
+			t.Fatal("20,000 bad items passed")
+		}
+	})
+}
+
 func TestLongNumberAllowedWhereAnythingIs(t *testing.T) {
 	long := strings.Repeat("9", 5000)
 	for _, schema := range []string{`{}`, `true`, `{"properties":{"raw":{}}}`, `{"type":"number"}`, `{"type":"integer"}`} {

@@ -2,7 +2,6 @@ package jsonschema
 
 import (
 	"bytes"
-	"container/heap"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -485,31 +484,21 @@ type run struct {
 	steps    int
 	stopped  bool
 	failures int
-	// errs keeps the maxErrors smallest errors by path and message, as a max-heap, so the errors
-	// reported do not depend on map order.
-	errs errHeap
+	// errs holds the first maxErrors errors. Later failures are only counted, so their paths are
+	// never built.
+	errs []*ValidationError
 	// muted counts anyOf branches being tried, whose failures are counted but not reported.
 	muted int
+	// sorted walks object keys in order. It is used for a second pass when the cap was hit, so the
+	// errors reported do not depend on map order.
+	sorted bool
 }
-
-type errHeap []*ValidationError
 
 func errLess(a, b *ValidationError) bool {
 	if a.Path != b.Path {
 		return a.Path < b.Path
 	}
 	return a.Message < b.Message
-}
-
-func (h errHeap) Len() int           { return len(h) }
-func (h errHeap) Less(i, j int) bool { return errLess(h[j], h[i]) }
-func (h errHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *errHeap) Push(x any)        { *h = append(*h, x.(*ValidationError)) }
-func (h *errHeap) Pop() any {
-	old := *h
-	x := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return x
 }
 
 func (s *compiled) Validate(instance json.RawMessage) error {
@@ -522,10 +511,14 @@ func (s *compiled) Validate(instance json.RawMessage) error {
 	}
 	r := &run{cfg: s.cfg}
 	r.validate(s.root, v, nil, 0)
+	if !r.stopped && r.failures > maxErrors {
+		// Which errors come first depends on map order, so walk again with sorted keys.
+		r = &run{cfg: s.cfg, sorted: true}
+		r.validate(s.root, v, nil, 0)
+	}
 	if r.stopped {
 		return &ValidationError{Message: fmt.Sprintf("validation stopped after %d steps", s.cfg.maxSteps)}
 	}
-	// Objects are walked in map order, so errors are sorted once here to keep output stable.
 	sort.Slice(r.errs, func(i, j int) bool { return errLess(r.errs[i], r.errs[j]) })
 	out := make([]error, 0, len(r.errs)+1)
 	for _, e := range r.errs {
@@ -545,18 +538,10 @@ func (s *compiled) Validate(instance json.RawMessage) error {
 
 func (r *run) fail(p *path, format string, args ...any) {
 	r.failures++
-	if r.muted > 0 {
+	if r.muted > 0 || len(r.errs) >= maxErrors {
 		return
 	}
-	e := &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)}
-	if len(r.errs) < maxErrors {
-		heap.Push(&r.errs, e)
-		return
-	}
-	if errLess(e, r.errs[0]) {
-		r.errs[0] = e
-		heap.Fix(&r.errs, 0)
-	}
+	r.errs = append(r.errs, &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)})
 }
 
 // passes runs n silently and reports whether it added no failure.
@@ -669,28 +654,41 @@ func (r *run) object(n *node, x map[string]any, p *path, depth int) {
 	if n.properties == nil && n.patternProps == nil && n.additional == nil {
 		return
 	}
+	if r.sorted {
+		for _, key := range sortedKeys(x) {
+			r.property(n, key, x[key], p, depth)
+			if r.stopped {
+				return
+			}
+		}
+		return
+	}
 	for key, value := range x {
-		at := p.child(key)
-		matched := false
-		if s, ok := n.properties[key]; ok {
-			r.validate(s, value, &at, depth+1)
-			matched = true
-		}
-		for _, ps := range n.patternProps {
-			if ps.re.MatchString(key) {
-				r.validate(ps.n, value, &at, depth+1)
-				matched = true
-			}
-		}
-		if !matched && n.additional != nil {
-			if n.additional.always != nil && !*n.additional.always {
-				r.fail(&at, "property is not allowed")
-			} else {
-				r.validate(n.additional, value, &at, depth+1)
-			}
-		}
+		r.property(n, key, value, p, depth)
 		if r.stopped {
 			return
+		}
+	}
+}
+
+func (r *run) property(n *node, key string, value any, p *path, depth int) {
+	at := p.child(key)
+	matched := false
+	if s, ok := n.properties[key]; ok {
+		r.validate(s, value, &at, depth+1)
+		matched = true
+	}
+	for _, ps := range n.patternProps {
+		if ps.re.MatchString(key) {
+			r.validate(ps.n, value, &at, depth+1)
+			matched = true
+		}
+	}
+	if !matched && n.additional != nil {
+		if n.additional.always != nil && !*n.additional.always {
+			r.fail(&at, "property is not allowed")
+		} else {
+			r.validate(n.additional, value, &at, depth+1)
 		}
 	}
 }
