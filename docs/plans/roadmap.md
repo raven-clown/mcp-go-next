@@ -13,7 +13,8 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 **Plan:** `docs/plans/2026-11-22-v0.1.md`. Its "Order of work" section builds servers first, then the `legacy` initialize handshake, then clients, so that mcp-go-next can replace mark3labs/mcp-go in real projects before the rest of phase 1 lands. The handshake moved here from phase 2 because most hosts still speak 2025-11-25.
 
 **Done when:**
-- every 2026-07-28 core conformance scenario passes
+- every 2026-07-28 core conformance scenario passes, and so do `initialize` and `session-lifecycle` through `legacy`
+- a mark3labs v1.6.0 client and server work against mcp-go-next through `legacy` (the interop tests in `bench/`)
 - CI is green on three systems
 - coverage is at least 80%
 - every cookbook page has a tested example
@@ -39,7 +40,7 @@ Each outline task becomes one GitHub issue with labels, a milestone and Project 
 
 The `legacy` module skeleton and the initialize handshake with `Mcp-Session-Id`, for servers and clients, moved to phase 1 as Tasks L1 to L3.
 
-**Done when:** the baseline holds only phase 4 items, and a 2025-11-25 client works through `legacy`.
+**Done when:** the baseline holds only phase 4 items, and a 2025-11-25 client or server works through `legacy` with server-to-client requests, the GET stream and resumability, not only the handshake phase 1 brings.
 
 ## Phase 3: gateways, interop, proof (v0.3)
 
