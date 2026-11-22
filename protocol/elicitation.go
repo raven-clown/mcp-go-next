@@ -1,6 +1,10 @@
 package protocol
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+)
 
 const (
 	ElicitForm = "form"
@@ -14,6 +18,30 @@ type ElicitParams struct {
 	Message         string          `json:"message"`
 	RequestedSchema json.RawMessage `json:"requestedSchema,omitempty"`
 	URL             string          `json:"url,omitempty"`
+}
+
+// MarshalJSON refuses a request that mixes the two modes or misses what its mode requires.
+func (p ElicitParams) MarshalJSON() ([]byte, error) {
+	type plain ElicitParams
+	switch p.Mode {
+	case "", ElicitForm:
+		if p.URL != "" {
+			return nil, errors.New(`protocol: a form elicitation cannot carry a url; set Mode to "url"`)
+		}
+		if s := bytes.TrimSpace(p.RequestedSchema); len(s) == 0 || s[0] != '{' {
+			return nil, errors.New("protocol: a form elicitation needs a requestedSchema object")
+		}
+	case ElicitURL:
+		if p.URL == "" {
+			return nil, errors.New("protocol: a url elicitation needs a url")
+		}
+		if p.RequestedSchema != nil {
+			return nil, errors.New("protocol: a url elicitation cannot carry a requestedSchema")
+		}
+	default:
+		return nil, errors.New(`protocol: elicitation mode must be "form" or "url"`)
+	}
+	return json.Marshal(plain(p))
 }
 
 const (
@@ -61,24 +89,24 @@ type EnumOption struct {
 }
 
 type UntitledSingleSelectEnumSchema struct {
-	Type        string   `json:"type"`
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Enum        []string `json:"enum"`
-	Default     *string  `json:"default,omitempty"`
-}
-
-type TitledSingleSelectEnumSchema struct {
 	Type        string       `json:"type"`
 	Title       string       `json:"title,omitempty"`
 	Description string       `json:"description,omitempty"`
-	OneOf       []EnumOption `json:"oneOf"`
+	Enum        List[string] `json:"enum"`
 	Default     *string      `json:"default,omitempty"`
 }
 
+type TitledSingleSelectEnumSchema struct {
+	Type        string           `json:"type"`
+	Title       string           `json:"title,omitempty"`
+	Description string           `json:"description,omitempty"`
+	OneOf       List[EnumOption] `json:"oneOf"`
+	Default     *string          `json:"default,omitempty"`
+}
+
 type UntitledEnumItems struct {
-	Type string   `json:"type"`
-	Enum []string `json:"enum"`
+	Type string       `json:"type"`
+	Enum List[string] `json:"enum"`
 }
 
 type UntitledMultiSelectEnumSchema struct {
@@ -92,7 +120,7 @@ type UntitledMultiSelectEnumSchema struct {
 }
 
 type TitledEnumItems struct {
-	AnyOf []EnumOption `json:"anyOf"`
+	AnyOf List[EnumOption] `json:"anyOf"`
 }
 
 type TitledMultiSelectEnumSchema struct {
@@ -107,10 +135,10 @@ type TitledMultiSelectEnumSchema struct {
 
 // LegacyTitledEnumSchema uses enumNames, which newer schemas replace with oneOf.
 type LegacyTitledEnumSchema struct {
-	Type        string   `json:"type"`
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Enum        []string `json:"enum"`
-	EnumNames   []string `json:"enumNames,omitempty"`
-	Default     *string  `json:"default,omitempty"`
+	Type        string       `json:"type"`
+	Title       string       `json:"title,omitempty"`
+	Description string       `json:"description,omitempty"`
+	Enum        List[string] `json:"enum"`
+	EnumNames   []string     `json:"enumNames,omitempty"`
+	Default     *string      `json:"default,omitempty"`
 }

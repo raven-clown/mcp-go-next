@@ -14,6 +14,15 @@ type Tool struct {
 	Meta         Object           `json:"_meta,omitempty"`
 }
 
+// MarshalJSON writes {"type":"object"} when InputSchema is empty, the smallest schema the spec accepts.
+func (t Tool) MarshalJSON() ([]byte, error) {
+	type plain Tool
+	if t.InputSchema == nil {
+		t.InputSchema = json.RawMessage(`{"type":"object"}`)
+	}
+	return json.Marshal(plain(t))
+}
+
 // The hints are pointers because the spec gives some of them a default of true.
 type ToolAnnotations struct {
 	Title           string `json:"title,omitempty"`
@@ -46,6 +55,6 @@ type PaginatedParams struct {
 type ListToolsResult struct {
 	ResultBase
 	CacheFields
-	Tools      []Tool `json:"tools"`
-	NextCursor string `json:"nextCursor,omitempty"`
+	Tools      List[Tool] `json:"tools"`
+	NextCursor string     `json:"nextCursor,omitempty"`
 }

@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // NotificationParams is the params of a notification that carries only _meta, such as the list-changed ones.
 type NotificationParams struct {
@@ -22,10 +25,18 @@ type LoggingMessageParams struct {
 	Data   json.RawMessage `json:"data"`
 }
 
+func (p LoggingMessageParams) MarshalJSON() ([]byte, error) {
+	type plain LoggingMessageParams
+	if p.Data == nil {
+		return nil, errors.New("protocol: a log message needs data")
+	}
+	return json.Marshal(plain(p))
+}
+
 type CancelledParams struct {
-	Meta      Object          `json:"_meta,omitempty"`
-	RequestID json.RawMessage `json:"requestId"`
-	Reason    string          `json:"reason,omitempty"`
+	Meta      Object    `json:"_meta,omitempty"`
+	RequestID RequestID `json:"requestId"`
+	Reason    string    `json:"reason,omitempty"`
 }
 
 type ResourceUpdatedParams struct {

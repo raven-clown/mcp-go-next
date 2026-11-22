@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 type Prompt struct {
 	Name        string           `json:"name"`
@@ -31,12 +34,20 @@ func (m *PromptMessage) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &w); err != nil {
 		return err
 	}
-	c, err := decodeContent(w.Content)
+	c, err := decodeContent(w.Content, false)
 	if err != nil {
 		return err
 	}
 	*m = PromptMessage{Role: w.Role, Content: c}
 	return nil
+}
+
+func (m PromptMessage) MarshalJSON() ([]byte, error) {
+	type plain PromptMessage
+	if m.Content == nil {
+		return nil, errors.New("protocol: a prompt message needs content")
+	}
+	return json.Marshal(plain(m))
 }
 
 type GetPromptParams struct {
@@ -49,13 +60,13 @@ type GetPromptParams struct {
 
 type GetPromptResult struct {
 	ResultBase
-	Description string          `json:"description,omitempty"`
-	Messages    []PromptMessage `json:"messages"`
+	Description string              `json:"description,omitempty"`
+	Messages    List[PromptMessage] `json:"messages"`
 }
 
 type ListPromptsResult struct {
 	ResultBase
 	CacheFields
-	Prompts    []Prompt `json:"prompts"`
-	NextCursor string   `json:"nextCursor,omitempty"`
+	Prompts    List[Prompt] `json:"prompts"`
+	NextCursor string       `json:"nextCursor,omitempty"`
 }

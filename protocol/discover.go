@@ -8,7 +8,7 @@ type DiscoverParams struct {
 type DiscoverResult struct {
 	ResultBase
 	CacheFields
-	SupportedVersions []string           `json:"supportedVersions"`
+	SupportedVersions List[string]       `json:"supportedVersions"`
 	Capabilities      ServerCapabilities `json:"capabilities"`
 	Instructions      string             `json:"instructions,omitempty"`
 }

@@ -39,13 +39,13 @@ type ReadResourceResult struct {
 type ListResourcesResult struct {
 	ResultBase
 	CacheFields
-	Resources  []Resource `json:"resources"`
-	NextCursor string     `json:"nextCursor,omitempty"`
+	Resources  List[Resource] `json:"resources"`
+	NextCursor string         `json:"nextCursor,omitempty"`
 }
 
 type ListResourceTemplatesResult struct {
 	ResultBase
 	CacheFields
-	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
-	NextCursor        string             `json:"nextCursor,omitempty"`
+	ResourceTemplates List[ResourceTemplate] `json:"resourceTemplates"`
+	NextCursor        string                 `json:"nextCursor,omitempty"`
 }

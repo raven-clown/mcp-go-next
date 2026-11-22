@@ -126,11 +126,17 @@ func (c ResourceLink) MarshalJSON() ([]byte, error) {
 
 func (c EmbeddedResource) MarshalJSON() ([]byte, error) {
 	type plain EmbeddedResource
+	if c.Resource == nil {
+		return nil, errors.New("protocol: an embedded resource needs its contents")
+	}
 	return withType(c.ContentType(), plain(c))
 }
 
 func (c ToolUseContent) MarshalJSON() ([]byte, error) {
 	type plain ToolUseContent
+	if c.Input == nil {
+		c.Input = json.RawMessage(`{}`)
+	}
 	return withType(c.ContentType(), plain(c))
 }
 
@@ -163,7 +169,9 @@ func (e *EmbeddedResource) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func decodeContent(raw json.RawMessage) (Content, error) {
+// decodeContent reads one block. Tool blocks are allowed only in sampling messages. A tool result's own
+// content is a ContentList, which allows no tool blocks, so blocks never nest more than one level.
+func decodeContent(raw json.RawMessage, allowToolBlocks bool) (Content, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || raw[0] != '{' {
 		return nil, errors.New("protocol: a content block must be an object")
@@ -176,6 +184,9 @@ func decodeContent(raw json.RawMessage) (Content, error) {
 	}
 	if probe.Type == nil {
 		return nil, errors.New(`protocol: a content block needs a "type"`)
+	}
+	if !allowToolBlocks && (*probe.Type == "tool_use" || *probe.Type == "tool_result") {
+		return nil, fmt.Errorf("protocol: %s blocks are only allowed in sampling messages", *probe.Type)
 	}
 	var (
 		c   Content
@@ -236,7 +247,7 @@ func (l *ContentList) UnmarshalJSON(b []byte) error {
 	}
 	out := make(ContentList, 0, len(raws))
 	for _, raw := range raws {
-		c, err := decodeContent(raw)
+		c, err := decodeContent(raw, false)
 		if err != nil {
 			return err
 		}
@@ -262,19 +273,37 @@ func (s SamplingContent) MarshalJSON() ([]byte, error) {
 func (s *SamplingContent) UnmarshalJSON(b []byte) error {
 	b = bytes.TrimSpace(b)
 	if len(b) > 0 && b[0] == '[' {
-		var l ContentList
-		if err := l.UnmarshalJSON(b); err != nil {
+		var raws []json.RawMessage
+		if err := json.Unmarshal(b, &raws); err != nil {
 			return err
 		}
-		*s = SamplingContent{Blocks: l, AsArray: true}
+		blocks := make([]Content, 0, len(raws))
+		for _, raw := range raws {
+			c, err := decodeContent(raw, true)
+			if err != nil {
+				return err
+			}
+			blocks = append(blocks, c)
+		}
+		*s = SamplingContent{Blocks: blocks, AsArray: true}
 		return nil
 	}
-	c, err := decodeContent(b)
+	c, err := decodeContent(b, true)
 	if err != nil {
 		return err
 	}
 	*s = SamplingContent{Blocks: []Content{c}}
 	return nil
+}
+
+// decodeSamplingContent reads a required content field, which UnmarshalJSON never sees when the key is absent.
+func decodeSamplingContent(raw json.RawMessage) (SamplingContent, error) {
+	var s SamplingContent
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return s, errors.New(`protocol: "content" is required`)
+	}
+	err := s.UnmarshalJSON(raw)
+	return s, err
 }
 
 // ResourceContents is the text or blob body of a resource.
@@ -300,20 +329,28 @@ func (c TextResourceContents) ResourceURI() string { return c.URI }
 func (c BlobResourceContents) ResourceURI() string { return c.URI }
 
 func decodeResourceContents(raw json.RawMessage) (ResourceContents, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' {
+		return nil, errors.New("protocol: resource contents must be an object")
+	}
 	var probe struct {
+		Text *string `json:"text"`
 		Blob *string `json:"blob"`
 	}
 	if err := json.Unmarshal(raw, &probe); err != nil {
 		return nil, fmt.Errorf("protocol: resource contents: %w", err)
 	}
-	if probe.Blob != nil {
+	switch {
+	case probe.Blob != nil:
 		var v BlobResourceContents
 		err := json.Unmarshal(raw, &v)
 		return v, err
+	case probe.Text != nil:
+		var v TextResourceContents
+		err := json.Unmarshal(raw, &v)
+		return v, err
 	}
-	var v TextResourceContents
-	err := json.Unmarshal(raw, &v)
-	return v, err
+	return nil, errors.New(`protocol: resource contents need "text" or "blob"`)
 }
 
 // ResourceContentsList is a list of resource bodies. A nil list is written as [].

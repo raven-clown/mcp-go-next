@@ -13,5 +13,5 @@ type ListRootsParams struct {
 }
 
 type ListRootsResult struct {
-	Roots []Root `json:"roots"`
+	Roots List[Root] `json:"roots"`
 }

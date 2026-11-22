@@ -2,7 +2,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestContentListUnknownType(t *testing.T) {
@@ -36,6 +38,7 @@ func TestContentTypeAlwaysWritten(t *testing.T) {
 		{EmbeddedResource{Resource: TextResourceContents{URI: "file:///a", Text: ""}}, `{"type":"resource","resource":{"uri":"file:///a","text":""}}`},
 		{ToolUseContent{ID: "1", Name: "f", Input: json.RawMessage(`{}`)}, `{"type":"tool_use","id":"1","name":"f","input":{}}`},
 		{ToolResultContent{ToolUseID: "1"}, `{"type":"tool_result","toolUseId":"1","content":[]}`},
+		{ToolUseContent{ID: "2", Name: "g"}, `{"type":"tool_use","id":"2","name":"g","input":{}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.block.ContentType(), func(t *testing.T) {
@@ -105,6 +108,96 @@ func TestResourceContentsKinds(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 	assertSameJSON(t, []byte(in), out)
+}
+
+func TestNestedToolResultsRejectedFast(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"resultType":"complete","content":[`)
+	const depth = 4000
+	for i := 0; i < depth; i++ {
+		b.WriteString(`{"type":"tool_result","toolUseId":"","content":[`)
+	}
+	for i := 0; i < depth; i++ {
+		b.WriteString(`]}`)
+	}
+	b.WriteString(`]}`)
+	start := time.Now()
+	var r CallToolResult
+	if err := json.Unmarshal([]byte(b.String()), &r); err == nil {
+		t.Fatal("a tool_result block inside a tool result was accepted")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("rejecting nested blocks took %v", d)
+	}
+}
+
+func TestToolBlocksOnlyInSampling(t *testing.T) {
+	toolUse := `{"type":"tool_use","id":"1","name":"f","input":{}}`
+	var l ContentList
+	if err := json.Unmarshal([]byte(`[`+toolUse+`]`), &l); err == nil {
+		t.Error("ContentList accepted a tool_use block")
+	}
+	var m PromptMessage
+	if err := json.Unmarshal([]byte(`{"role":"user","content":`+toolUse+`}`), &m); err == nil {
+		t.Error("PromptMessage accepted a tool_use block")
+	}
+	var s SamplingContent
+	if err := json.Unmarshal([]byte(toolUse), &s); err != nil {
+		t.Errorf("SamplingContent rejected tool_use: %v", err)
+	}
+	nested := `{"type":"tool_result","toolUseId":"1","content":[{"type":"tool_result","toolUseId":"2","content":[]}]}`
+	if err := json.Unmarshal([]byte(nested), &s); err == nil {
+		t.Error("SamplingContent accepted a tool_result inside a tool_result")
+	}
+}
+
+func TestMissingRequiredContentRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		v    any
+	}{
+		{"sampling message without content", `{"role":"user"}`, new(SamplingMessage)},
+		{"sampling message with null content", `{"role":"user","content":null}`, new(SamplingMessage)},
+		{"create message result without content", `{"role":"assistant","model":"m"}`, new(CreateMessageResult)},
+		{"embedded resource without resource", `{"type":"resource"}`, new(EmbeddedResource)},
+		{"embedded resource with null resource", `{"type":"resource","resource":null}`, new(EmbeddedResource)},
+		{"resource contents without text or blob", `{"type":"resource","resource":{"uri":"a"}}`, new(EmbeddedResource)},
+		{"read result contents without text or blob", `{"resultType":"complete","ttlMs":0,"cacheScope":"public","contents":[{"uri":"a"}]}`, new(ReadResourceResult)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := json.Unmarshal([]byte(tt.in), tt.v); err == nil {
+				t.Fatalf("Unmarshal(%s) succeeded", tt.in)
+			}
+		})
+	}
+}
+
+func FuzzContent(f *testing.F) {
+	for _, seed := range []string{
+		`[{"type":"text","text":"a"}]`,
+		`[{"type":"resource","resource":{"uri":"a","blob":"AA=="}}]`,
+		`{"type":"tool_result","toolUseId":"1","content":[{"type":"text","text":"x"}]}`,
+		`[{"type":"tool_use","id":"1","name":"f","input":{}}]`,
+		`[{"type":"x-future"}]`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		var l ContentList
+		if json.Unmarshal(b, &l) == nil {
+			if _, err := json.Marshal(l); err != nil {
+				t.Fatalf("ContentList decoded but does not encode: %v", err)
+			}
+		}
+		var s SamplingContent
+		if json.Unmarshal(b, &s) == nil {
+			if _, err := json.Marshal(s); err != nil {
+				t.Fatalf("SamplingContent decoded but does not encode: %v", err)
+			}
+		}
+	})
 }
 
 func TestPromptMessageContent(t *testing.T) {

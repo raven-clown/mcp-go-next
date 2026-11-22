@@ -44,6 +44,7 @@ The root package is `mcp`. The packages below arrive task by task through the v0
 - No `exec` of any program except the test binary itself (helper process pattern) in `transport/stdio` tests.
 - Work on a branch named `feat/<topic>`, `fix/<topic>`, `ci/<topic>`, `docs/<topic>` or `chore/<topic>`. Commit with Conventional Commits messages and stage files by name.
 - Every pull request gets labels, a milestone and an assignee, and links its issue.
+- Every pull request gets a code review before it is merged, even when CI is green. Fix or answer each finding first, and list them in the pull request.
 - Merge with a squash: `--subject "<pr title> (#<n>)" --body ""`, so no trailer lands on main.
 - Release with a tag `vX.Y.Z` on main, with notes from that version's CHANGELOG section.
 - Never mention AI, assistants or code generation in code, comments, docs, commit messages, pull requests or issues. Never add `Co-Authored-By`, `Generated with` or similar trailers.
