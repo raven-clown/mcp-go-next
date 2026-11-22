@@ -8,6 +8,8 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-22
+
 ### Added
 
 - `Server`, `Handler`, `Middleware`, `Request` and `Error`, plus `HandleMessage`, the entry point a transport calls for each message. It checks the protocol version, recovers panics into internal errors, keeps the text of unexpected errors from the client, and stamps `resultType`, server info and cache fields on every result. A small request round trip takes about 3.8 µs. There are no tools, resources or transports yet. (#77)
@@ -57,6 +59,7 @@ The first building blocks. There is no server or client yet: this release has th
   - Typical tool arguments validate in about 3 µs.
   - (#71, #72)
 
-[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/raven-clown/mcp-go-next/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/raven-clown/mcp-go-next/releases/tag/v0.1.0
