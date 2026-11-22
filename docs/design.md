@@ -1,253 +1,276 @@
-# tether design
+# mcp-go-next design
 
-tether is a Go library for the Model Context Protocol (MCP). It implements protocol revision 2026-07-28 and nothing older in its core. Servers and clients are both first class, the core module depends only on the standard library, and the project is set up so that people outside it can find work and land changes without asking first.
+mcp-go-next is a Go library for the Model Context Protocol (MCP). It implements protocol revision 2026-07-28 and nothing older in its core. Servers and clients are both first class, the core module depends only on the standard library, and the project is set up so that people outside it can find work and land changes without asking first.
 
-## Why another Go MCP library
+The design starts from what real users of the existing Go libraries ran into, not from a list of spec features. The evidence is summarized below. The raw data (every issue in both main libraries, their discussions, GitHub code search counts, and the go.mod files and PRs of the largest MCP projects written in Go) was collected on 2026-11-22.
 
-Two good libraries exist. `mark3labs/mcp-go` is the most used and moves fast. `modelcontextprotocol/go-sdk` is the official SDK. Both grew up on the handshake era (2024-11-05 to 2025-11-25) and now carry that era and the stateless 2026-07-28 revision in the same code: sessions, the GET stream, server-to-client requests and the new per-request metadata all live side by side. Their issue trackers show where that hurts: races between registration and capability checks, transport edge cases (stdio EOF, SSE line endings, queue limits), notifications arriving after results, repeated JSON parsing on large messages, and auth that breaks against strict servers.
+## What real users told us
 
-2026-07-28 removed the handshake and sessions. A server is now close to a function from a request to a result. tether is built on that model from the start:
+### Who builds with Go MCP libraries
 
-- **Stateless core.** No sessions, no goroutines in the server, no per-connection state. Easy to reason about, easy to scale behind a load balancer, easy to test.
-- **Small API in the shape of `net/http`.** A `Handler`, middleware as `func(Handler) Handler`, and typed tools through generics.
-- **Correct by test.** The official conformance suite runs in CI from the first release, and every transport has ordering, leak and fuzz tests.
-- **Older revisions are an adapter, not a mode.** A separate `legacy` module (v0.2) translates the 2025-11-25 handshake and sessions into per-request metadata at the transport edge. Users who do not need it never compile it.
+- The largest Go MCP projects moved to the official `modelcontextprotocol/go-sdk` in 2026: `github/github-mcp-server` (34.6k stars), `containers/kubernetes-mcp-server`, `stacklok/toolhive`, `grafana/mcp-grafana` and `TykTechnologies/tyk` all depend on go-sdk v1.7 or v1.8. `hashicorp/terraform-mcp-server` is migrating tool by tool. The author of `mark3labs/mcp-go` says the same in discussion #662.
+- GitHub code search finds about 67.7k Go files importing go-sdk's `mcp` package and about 24.6k importing mark3labs's `server` package.
+- Three kinds of users stand out:
+  - **Servers that wrap a large API.** GitHub, Kubernetes, Grafana and Terraform each register dozens to hundreds of tools. This is the largest group and the primary target of this design.
+  - **Gateways and proxies.** ToolHive and Tyk aggregate upstream servers, and Grafana proxies tools from other servers.
+  - **Hosts and agents.** `mark3labs/mcphost` and `f/mcptools` act as clients of many servers.
+
+### What they use
+
+| API | Files (code search) |
+|---|---|
+| go-sdk typed `mcp.AddTool` | 13,888 |
+| go-sdk raw `server.AddTool` | 2,264 |
+| mark3labs `mcp.NewTool` builder | 15,840 |
+| go-sdk Streamable HTTP handler / stdio | 6,368 / 4,760 |
+| go-sdk in-memory transports (tests) | 7,264 |
+| go-sdk stateless option | 3,712 |
+| go-sdk middleware / bearer auth | 2,072 / 812 |
+| Elicit / CreateMessage / per-session tools | 212 / 96 / 34 |
+
+Typed tools, Streamable HTTP, stdio, in-memory testing, middleware and auth carry almost all real use. Elicitation and sampling are rare but required by the spec, so they are covered without shaping the API around them.
+
+### What hurts, most engagement first
+
+1. **Sessions and scale.**
+   - go-sdk #148 (shared session storage, 53 comments).
+   - ToolHive had to add Redis session storage.
+   - Grafana's proxied tools leaked memory per session: about 300 MB at 1,930 live sessions, and session maps were never freed (mcp-grafana #1001).
+2. **Client transport fragility.** go-sdk:
+   - #683: a transient error poisons the connection.
+   - #1189: `Connect` ignores its deadline.
+   - #513: context is not propagated.
+   - #579: HTTP errors are hard to handle.
+   - #522: the client wants an interface instead of `*http.Client`.
+3. **Tool API ergonomics and speed with many tools.**
+   - go-sdk #396 and #243, and mark3labs #104 and #108.
+   - github-mcp-server forked go-sdk to cache schemas and encoded `tools/list` responses (#1530, #3407), and added a code generator for 94 input types (#1535).
+4. **Per-call context from HTTP.** Grafana replaced transport hooks with one middleware that reads auth and org ID from headers on each call. "How do I read a header in a tool" and "how do I add Gin-style middleware" are among the most asked questions in mark3labs discussions, and many are unanswered.
+5. **Auth.** mark3labs #540, go-sdk #901 (save and restore OAuth sessions), plus discussions on bearer middleware, token refresh and DNS rebinding.
+6. **Notifications that never arrive.** mark3labs #334, #42 and #321; go-sdk #666 and #745.
+7. **Extensibility.** go-sdk #954 (custom JSON-RPC methods, 22 comments) and #745 (custom notifications).
+8. **CORS for browser clients.** go-sdk sets no CORS headers, which caused a regression in github-mcp-server (#2359, #3167). Grafana wrote its own.
+9. **Docs and examples.** go-sdk #720 and #33, and dozens of unanswered Q&A threads.
+10. **Gateways.** ToolHive's virtual MCP aggregates upstreams. Grafana retries transient discovery failures and had to stop building one client per session.
+
+Production guidance from the Agentic AI Foundation (July 2026) points the same way:
+- Replace session state with server-issued handles that have an owner, a lifetime and a cleanup path, and check ownership on every call.
+- Give each caller only the tools it needs, because 40 tools cost 10 to 15 KB of schema per turn.
+- Bound schema depth and validation time, and never fetch a network `$ref`.
+- Mark per-user results with a private cache scope.
+- Carry W3C trace context in `_meta`.
 
 ## Goals
 
-- Full coverage of the 2026-07-28 base protocol, server features and client features, passing every core scenario of the official conformance suite by v0.1. Auth and extension scenarios follow in v0.2 and v0.3, which is what Tier 1 needs.
-- stdio and Streamable HTTP transports for both servers and clients.
+- Make the common path short for servers with many tools: typed tools from structs, toolsets chosen per request, and `tools/list` served from a pre-encoded cache.
+- Replace sessions with things that scale: a principal on every request and an owned, expiring handle store with a pluggable backend.
+- A client that survives transient failures, keeps deadlines, and returns typed errors.
+- Full coverage of the 2026-07-28 base protocol, server features and client features, passing every core scenario of the official conformance suite by v0.1. Auth and extension scenarios follow in later phases.
+- stdio and Streamable HTTP transports for both servers and clients, mountable in any Go HTTP router.
 - Zero third-party dependencies in the core module, including tests.
 - Tests that pass with `-race` on Linux, macOS and Windows, with no network and no sleeps.
-- A contributor can read `docs/spec-coverage.md`, pick an open row, and find a labeled issue for it.
-- Every row of the feature matrix below is covered by a phase in `docs/plans/roadmap.md`. Nothing either competitor does is left out without a written reason.
-- A project on `mark3labs/mcp-go` or `modelcontextprotocol/go-sdk` can move by changing import paths, with a tool that does the rewrite and lists anything not covered yet.
+- A cookbook that answers the questions users actually ask, each answer backed by a tested example.
+- Every row of the feature matrix is covered by a phase in `docs/plans/roadmap.md`.
 
 ## Non-goals
 
+- API compatibility with `mark3labs/mcp-go` or `modelcontextprotocol/go-sdk`. mcp-go-next has its own API. A guide shows the equivalent code, but no shims are planned.
 - Revisions before 2026-07-28 in the core. They come through the `legacy` module.
-- The deprecated HTTP+SSE transport in the core. It lives in the `legacy` module for projects that still serve it.
-- An HTTP framework, router or config system. tether hands you an `http.Handler`.
-- Code generation. Wire types are written by hand and checked against the official schema.
+- The deprecated HTTP+SSE transport in the core. It lives in `legacy`.
+- An HTTP framework, router or config system. mcp-go-next hands you an `http.Handler`.
+- Mandatory code generation. Schemas come from Go types at registration, or from a type that provides its own.
 
 ## Feature matrix
 
-The baseline is every feature in MCP 2026-07-28. On top of that, every feature either competitor ships is listed, so nothing gets dropped by accident.
+The baseline is every feature in MCP 2026-07-28. On top of that comes every feature the two main Go libraries ship and every need the user research found.
 
-**Sources:** `mark3labs/mcp-go` was read at `41451a37` (v1.6.0 line, 2026-10-17). `modelcontextprotocol/go-sdk` was read on main on 2026-11-22 (v1.8.0), from its README, file layout and issue tracker.
+**Sources:**
+- `mark3labs/mcp-go` was read at `41451a37` (v1.6.0 line, 2026-10-17).
+- `modelcontextprotocol/go-sdk` was read on main on 2026-11-22 (v1.8.0), from its README, file layout and issue tracker.
 
 **Cell values:**
 - "yes" means the code is there.
 - "no" means it is missing or an open issue asks for it.
 - "unverified" means we could not confirm it from the source and README and still need to check.
 
-The Phase column points at `docs/plans/roadmap.md`.
+The Phase column points at `docs/plans/roadmap.md`, and the last column cites the user evidence behind the row.
 
 ### Base protocol
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
-| B1 | 2026-07-28 stateless requests, `_meta` per request | yes | yes | yes | 1 | One code path. Neither competitor can drop the session machinery without breaking users |
-| B2 | Revisions 2025-11-25 and older | yes | yes | adapter | 2 | Opt-in `legacy` module, so the core stays free of era branches |
-| B3 | `server/discover` | yes | yes | yes | 1 | Answered from the registry snapshot, never stale |
-| B4 | Multi round-trip input requests (MRTR) | yes | yes | yes | 1 | Plain function call, `requestState` helpers, and a replay safety check in the test kit |
-| B5 | `subscriptions/listen` | yes | unverified | yes | 1 | Bounded broker: a slow listener is closed and never blocks requests (mark3labs queue-at-10 bug) |
-| B6 | Cancellation | yes | yes | yes | 1 | Through `ctx` on every transport, tested for leaks |
-| B7 | Progress | yes | yes | yes | 1 | Ordering guarantee before the response on every transport, in-memory included |
-| B8 | Per-request log level | yes | yes | yes | 1 | No log without an explicit level, as the spec says |
-| B9 | Caching hints `ttlMs`, `cacheScope` | yes | yes | yes | 1 | Server-wide defaults with per-result override |
+| B1 | 2026-07-28 stateless requests, `_meta` per request | yes | yes | yes | 1 | One code path with no session machinery |
+| B2 | Revisions 2025-11-25 and older | yes | yes | adapter | 2 | Opt-in `legacy` module |
+| B3 | `server/discover` | yes | yes | yes | 1 | Answered from the registry snapshot |
+| B4 | Multi round-trip input requests | yes | yes | yes | 1 | Plain function call, `requestState` helpers, replay check in the test kit |
+| B5 | `subscriptions/listen` | yes | unverified | yes | 1 | Bounded broker, a slow listener never blocks requests (mark3labs queue limit) |
+| B6 | Cancellation | yes | yes | yes | 1 | Through `ctx` on every transport, leak tested |
+| B7 | Progress | yes | yes | yes | 1 | Delivered before the response on every transport (mark3labs #334, #42) |
+| B8 | Per-request log level | yes | yes | yes | 1 | No log without an explicit level |
+| B9 | Caching hints `ttlMs`, `cacheScope` | yes | yes | yes | 1 | Private by default when results depend on the caller (AAIF) |
 | B10 | Pagination | yes | yes | yes | 1 | Cursors stay valid while tools change (mark3labs #1214) |
-| B11 | Standard headers `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*` | yes | yes | yes | 1 | Checked on both sides, base64 values fuzzed |
-| B12 | Error codes -32020, -32021, -32022 with data | yes | yes | yes | 1 | Constructors carry the spec's `data` shape |
-| B13 | Custom JSON-RPC methods and notifications | unverified | yes | yes | 1 | `srv.HandleMethod` and `conn.Request` are public from day one (go-sdk #745) |
-| B14 | Large-message performance | partial | partial | yes | 1 | One envelope decode and one `_meta` decode per message, benchmarked in CI (mark3labs perf draft, go-sdk #1531) |
+| B11 | Standard headers `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*` | yes | yes | yes | 1 | Checked on both sides, fuzzed |
+| B12 | Error codes -32020, -32021, -32022 with data | yes | yes | yes | 1 | |
+| B13 | Custom JSON-RPC methods and notifications | unverified | yes | yes | 1 | go-sdk #954, #745 |
+| B14 | Large-message performance | partial | partial | yes | 1 | One decode per message, benchmarked (go-sdk #1531) |
 
 ### Server features
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
-| S1 | Typed tools from Go types | yes | yes | yes | 1 | Generic `AddTool[In, Out]`, stdlib schema inference |
-| S2 | Raw schema passthrough | yes | yes | yes | 1 | Byte-for-byte, tested |
-| S3 | Structured output and output schema | yes | yes | yes | 1 | Inferred from `Out` |
-| S4 | Input validation | yes | yes | yes | 1 | Exact decimal numbers (go-sdk #1310), case-sensitive names (mark3labs #1165) |
-| S5 | Full JSON Schema 2020-12 validation | yes | yes | module | 5 | Opt-in module, core stays dependency-free |
-| S6 | Resources and templates | yes | yes | yes | 1 | |
+| S1 | Typed tools from Go structs | partial | yes | yes | 1 | The most used tool API (13.9k files). Schema built once at registration |
+| S2 | Raw schema passthrough | yes | yes | yes | 1 | Byte for byte, for gateways |
+| S3 | Structured output and output schema | yes | yes | yes | 1 | |
+| S4 | Input validation | yes | yes | yes | 1 | Exact decimals (go-sdk #1310), case-sensitive names (mark3labs #1165) |
+| S5 | Full JSON Schema 2020-12 validation | yes | yes | module | 4 | Core stays dependency-free |
+| S6 | Resources and templates | yes | yes | yes | 1 | Same ergonomics as tools (kubernetes-mcp-server #1169) |
 | S7 | Prompts | yes | yes | yes | 1 | |
 | S8 | Completion | yes | yes | yes | 1 | |
 | S9 | Logging to client (deprecated) | yes | yes | yes | 1 | |
 | S10 | Registration while serving | race bugs | unverified | yes | 1 | Copy-on-write snapshots (mark3labs #1303, #1305) |
-| S11 | Per-user tool sets and tool filters | yes | unverified | yes | 5 | Filter on the request principal from auth middleware, no session table |
-| S12 | Hooks around requests | yes | middleware | middleware | 1 | One mechanism, `func(Handler) Handler` |
-| S13 | Panic recovery | yes | unverified | yes | 1 | Always on, stack never sent to the client |
-| S14 | Tool result size limit | yes | unverified | yes | 5 | Middleware |
-| S15 | Concurrency limits, worker pool | yes | unverified | yes | 1 (stdio), 5 (HTTP middleware) | |
+| S11 | Toolsets chosen per request | session tools | no | yes | 1 | github-mcp-server toolsets, AAIF tool pruning |
+| S12 | Pre-encoded, cached `tools/list` | no | no | yes | 1 | github-mcp-server #1530, #3407 |
+| S13 | Schema from a type's own method, no reflection | no | fork only | yes | 1 | github-mcp-server #1535 |
+| S14 | Schema safety bounds (depth, validation time, no network `$ref`) | unverified | unverified | yes | 1 | AAIF |
+| S15 | Principal on every request | context funcs | via middleware | yes | 1 | mcp-grafana #1180, mark3labs discussions #384, #506 |
+| S16 | Owned, expiring handles with pluggable store | no | no | yes | 1 | go-sdk #148, mcp-grafana #1001, AAIF |
+| S17 | Middleware around requests | hooks | yes | yes | 1 | go-sdk #174 |
+| S18 | Panic recovery | yes | unverified | yes | 1 | |
+| S19 | Tool result size limit | yes | unverified | yes | 4 | |
+| S20 | Concurrency limits | yes | unverified | yes | 1 (stdio), 4 (HTTP) | |
 
 ### Client features
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
 | C1 | Elicitation form and URL | yes | yes | yes | 1 | Typed `Form[T]` and `Answer[T]` |
 | C2 | Sampling (deprecated) | yes | yes | yes | 1 | |
 | C3 | Roots (deprecated) | yes | yes | yes | 1 | |
-| C4 | Automatic MRTR retry loop | yes | yes | yes | 1 | Round limit, `requestState` carried, clear error when no handler (mark3labs #1286) |
-| C5 | Typed calls and pagination iterators | yes | yes | yes | 1 | `Call[Out]`, `iter.Seq2` |
-| C6 | Schema passthrough to models | needs re-marshal | yes | yes | 1 | `json.RawMessage` fields (mark3labs tool-schema draft) |
+| C4 | Automatic input-request retry loop | yes | yes | yes | 1 | Clear error when no handler (mark3labs #1286) |
+| C5 | Typed calls and pagination iterators | yes | yes | yes | 1 | |
+| C6 | Schema passthrough to models | needs re-marshal | yes | yes | 1 | |
+| C7 | Transient errors never break the connection | unverified | no (#683) | yes | 1 | go-sdk #683 |
+| C8 | Retries with backoff for safe methods | unverified | no | yes | 1 | mcp-grafana #1071 |
+| C9 | Typed HTTP errors with status and body | unverified | no (#579) | yes | 1 | go-sdk #579 |
+| C10 | Deadlines kept everywhere | unverified | no (#1189) | yes | 1 | go-sdk #1189, #513 |
 
-### Transports
+### Transports and HTTP
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
 | T1 | stdio server | yes | yes | yes | 1 | Final line without newline, drain at EOF (go-sdk #1061) |
-| T2 | stdio client and subprocess | yes | yes | yes | 1 | Close stdin, wait, kill, with leak tests |
-| T3 | Streamable HTTP server | yes | yes | yes | 1 | Body limit (mark3labs #1107), Origin check by default, JSON or SSE chosen per response |
-| T4 | Streamable HTTP client | yes | yes | yes | 1 | Fuzzed SSE reader (mark3labs #1267, #1186), deadlines kept (go-sdk #1189) |
-| T5 | In-memory transport | yes, ordering bug | yes | yes | 1 | Real JSON encoding and the same ordering rule |
-| T6 | Custom transports | yes | yes | yes | 1 | One small interface over public `jsonrpc` |
-| T7 | HTTP+SSE transport (deprecated) | yes | yes | adapter | 2 | In `legacy` only |
-| T8 | Resumability, event store (removed in 2026-07-28) | yes | yes | adapter | 2 | In `legacy` only |
-| T9 | CORS helpers | yes | unverified | yes | 5 | Middleware |
+| T2 | stdio client and subprocess | yes | yes | yes | 1 | |
+| T3 | Streamable HTTP server | yes | yes | yes | 1 | Body limit (mark3labs #1107), Origin check by default |
+| T4 | Streamable HTTP client | yes | yes | yes | 1 | Fuzzed SSE reader (mark3labs #1267, #1186), `Doer` interface (go-sdk #522) |
+| T5 | In-memory transport for tests | yes, ordering bug | yes | yes | 1 | Heavily used (7.3k files). Real JSON encoding and the ordering rule |
+| T6 | Custom transports | yes | yes | yes | 1 | |
+| T7 | HTTP+SSE transport (deprecated) | yes | yes | adapter | 2 | `legacy` only |
+| T8 | Resumability and event store (removed in 2026-07-28) | yes | yes | adapter | 2 | `legacy` only |
+| T9 | CORS built in, including `Mcp-*` headers | yes | no | yes | 1 | github-mcp-server #2359, #3167 |
+| T10 | Mounts in any router (net/http, Gin, chi, echo) | partial | yes | yes | 1 | mark3labs discussions #308, #336, #562 |
 
 ### Authorization
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
-| A1 | Protected resource metadata (RFC 9728) | yes | yes | yes | 2 | Lenient resource matching per RFC (go-sdk #1538) |
-| A2 | Bearer token middleware with audience checks | unverified | yes | yes | 2 | |
-| A3 | `WWW-Authenticate`, 403 `insufficient_scope`, step-up | unverified | partial | yes | 2 | Request-time scope challenges (go-sdk #1248) |
-| A4 | Client OAuth 2.1 with PKCE | yes | experimental | yes | 2 | Conformance auth suite in CI |
-| A5 | Client ID Metadata Documents | unverified | unverified | yes | 2 | Preferred path, as the spec asks |
+| A1 | Protected resource metadata (RFC 9728) | yes | yes | yes | 2 | Resource matching per RFC (go-sdk #1538) |
+| A2 | Bearer token middleware with audience checks, sets the principal | unverified | yes | yes | 2 | go-sdk discussions #223, #299 |
+| A3 | `WWW-Authenticate`, 403 `insufficient_scope`, step-up | unverified | partial | yes | 2 | go-sdk #1248 |
+| A4 | Client OAuth 2.1 with PKCE | yes | experimental | yes | 2 | mark3labs #540 |
+| A5 | Client ID Metadata Documents | unverified | unverified | yes | 2 | |
 | A6 | Dynamic client registration (deprecated) | unverified | yes | yes | 2 | Sends scopes (go-sdk #1102) |
 | A7 | RFC 8707 `resource`, RFC 9207 `iss` checks | yes | unverified | yes | 2 | |
-| A8 | Token refresh before expiry | partial | unverified | yes | 2 | mark3labs #1122 |
-| A9 | Client credentials, enterprise-managed authorization, token exchange | unverified | yes | yes | 5 | |
-| A10 | DPoP | unverified | unverified | yes | 5 | Conformance has scenarios |
+| A8 | Token refresh before expiry, saved and restored token sets | partial | no (#901) | yes | 2 | mark3labs #1122, go-sdk #901 |
+| A9 | Client credentials, enterprise-managed authorization, token exchange | unverified | yes | yes | 4 | |
+| A10 | DPoP | unverified | unverified | yes | 4 | |
+
+### Gateways
+
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
+|---|---|---|---|---|---|---|
+| G1 | Aggregate upstream servers with name prefixes | no | no | yes | 3 | ToolHive virtual MCP |
+| G2 | Upstream clients shared per credential, never per caller | no | no | yes | 3 | mcp-grafana #1001 |
+| G3 | Upstream discovery cache with retries | no | no | yes | 3 | mcp-grafana #1071 |
+| G4 | Pass through input requests, progress and cancellation to upstreams | no | no | yes | 3 | |
 
 ### Extensions
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
-| E1 | Tasks (`io.modelcontextprotocol/tasks`) | yes | no (#626) | yes | 5 | Built on the stateless core with a pluggable task store |
-| E2 | Skills over MCP | unverified | unverified | yes | 5 | Conformance has scenarios |
-| E3 | MCP Apps (UI) | unverified | unverified | yes | 5 | |
+| E1 | Tasks (`io.modelcontextprotocol/tasks`) | yes | no (#626) | yes | 4 | |
+| E2 | Skills over MCP | unverified | unverified | yes | 4 | Used by github-mcp-server (#3685) |
+| E3 | MCP Apps (UI) | unverified | unverified | yes | 4 | Used by mcp-grafana (#1309) |
 | E4 | Declaring extensions in capabilities | yes | yes | yes | 1 | |
 
-### Operations, testing and project
+### Operations, testing and docs
 
-| ID | Feature | mark3labs | go-sdk | tether | Phase | Where tether aims to be better |
+| ID | Feature | mark3labs | go-sdk | mcp-go-next | Phase | Evidence and where mcp-go-next aims to be better |
 |---|---|---|---|---|---|---|
-| O1 | OpenTelemetry traces and metrics | yes (module) | unverified | yes (module) | 5 | Separate module, trace context through `_meta` |
-| O2 | Structured logging (`slog`) | yes | yes | yes | 1 | `WithErrorLog`, `slog` adapter in phase 5 |
-| O3 | Rate limiting | no (#896) | example | yes | 5 | Middleware keyed by principal |
-| O4 | Test kit | yes (`mcptest`) | in-memory | yes | 1 | Pair, leak check, replay check, golden files |
-| O5 | Official conformance suite in CI | yes | yes | yes | 1 | Baseline file reviewed on every change |
-| O6 | Interop with reference servers and clients | unverified | unverified | yes | 3 | Published matrix in `docs/interop.md` |
-| O7 | Fuzz tests | unverified | unverified | yes | 1 | JSON-RPC, SSE, headers |
+| O1 | OpenTelemetry traces and metrics, W3C trace context in `_meta` | yes (module) | unverified | yes (module) | 4 | go-sdk #59, AAIF |
+| O2 | In-flight and per-method metrics hook | unverified | unverified | yes | 1 | kubernetes-mcp-server #1502 |
+| O3 | Rate limiting by principal | no (#896) | example | yes | 4 | |
+| O4 | Test kit | yes | in-memory | yes | 1 | Pair, leak check, replay check, golden files |
+| O5 | Official conformance suite in CI | yes | yes | yes | 1 | |
+| O6 | Interop with reference servers and clients | unverified | unverified | yes | 3 | |
+| O7 | Fuzz tests | unverified | unverified | yes | 1 | |
 | O8 | Third-party dependencies in the core | 7 direct | several | 0 | 1 | |
-| O9 | Drop-in from mark3labs | n/a | n/a | yes | 3 | See Compatibility |
-| O10 | Drop-in from go-sdk | n/a | n/a | yes | 4 | See Compatibility |
+| O9 | Cookbook of tested answers to real questions | partial | partial (#720) | yes | 1 | Unanswered discussions in both repos |
+| O10 | Equivalent-code guide for users of other libraries | n/a | n/a | yes | 3 | Terraform's tool-by-tool migration |
+
+### Other Go libraries
+
+Three smaller libraries also exist. Their feature cells are unverified and get checked in phase 3:
+
+- `metoro-io/mcp-golang` (1.2k stars) aims at writing servers in few lines.
+- `ThinkInAIXYZ/go-mcp` (681 stars) is a general SDK.
+- `panyam/mcpkit` (7 stars) claims a 100% conformance tier check and ships OAuth, tasks, skills, apps and OpenTelemetry.
+
+mcpkit shows that conformance alone does not draw users. The focus here is the problems above.
 
 ### Where "better" is not proven yet
 
-Some things cannot be claimed on day one. Each item says what would earn the claim.
-
-- **Maturity.** Both competitors have years of production use and thousands of dependents. tether has none. Earn it by publishing the conformance pass rate and interop matrix on every release, then real adopters.
-- **Official status.** go-sdk is the official SDK and appears on the SDK tiers page. Earn it by passing the full conformance suite and applying for a tier listing at v1.0.
-- **Breadth of older revisions.** Both support every revision in their core. tether supports them through `legacy` from phase 2. Earn parity with the upstream test suites, run against `legacy` (phase 3).
-- **Performance.** The single-decode design should be faster on large messages, but that is a claim until it is measured. Earn it with the phase 1 benchmarks run side by side with both competitors and published in `docs/benchmarks.md` (phase 3).
-- **Contributors.** One maintainer today. Earn it with labeled issues for every open roadmap row and fast reviews.
-- **"unverified" cells.** Each one gets checked against the competitor's source before phase 3. The matrix is corrected wherever we were wrong.
-
-## Compatibility and migration
-
-Projects on `mark3labs/mcp-go` or `modelcontextprotocol/go-sdk` move by changing import paths. Code written against tether's own API is the long-term path, and the shims are the bridge.
-
-### Shim modules
-
-| Module | Mirrors | Phase |
-|---|---|---|
-| `github.com/raven-clown/tether/compat/mark3labs` | `mcp`, `server`, `client`, `client/transport`, `mcptest` of `github.com/mark3labs/mcp-go` | 3 |
-| `github.com/raven-clown/tether/compat/gosdk` | `mcp`, `jsonrpc`, `auth`, `oauthex` of `github.com/modelcontextprotocol/go-sdk` | 4 |
-
-- Each shim keeps the upstream package names, exported identifiers and signatures, and runs on tether's core. The session APIs both libraries expose are emulated through `legacy`, so a shim depends on `legacy`.
-- Each shim pins the upstream version it mirrors. `internal/cmd/apisurface` lists every exported symbol of that upstream version and of the shim. CI fails when the shim drops a symbol it covered before. The coverage percentage goes in `docs/compat-status.md`.
-- Proof of drop-in: CI copies the upstream repositories' own `examples/` at the pinned version, rewrites their imports to the shim, builds them, and runs the ones that have tests.
-
-### What is drop-in and what is not
-
-`docs/compat-status.md` holds the live list, generated from `apisurface` and the example builds. At the start of phase 3 it looks like this:
-
-| Area | Drop-in | Not yet, with the plan |
-|---|---|---|
-| Tool, resource and prompt registration, typed tools, results | yes | |
-| stdio and Streamable HTTP servers and clients | yes | |
-| Sampling, elicitation, roots, progress, logging | yes | |
-| OAuth client and server options | yes after phase 2 | |
-| Session hooks, session-specific tools, session ID managers | emulated through `legacy` | behavior on 2026-07-28 requests differs because sessions do not exist there, and the guide says how |
-| SSE server and event stores | through `legacy` | |
-| Package internals, unexported behavior, exact error strings | no | not part of the contract |
-| Upstream symbols added after the pinned version | no | the shim is bumped each tether minor release |
-
-### Migration tool
-
-`cmd/tether-migrate` uses `go/ast` and `go/format` from the standard library:
-
-- `tether-migrate ./...` rewrites upstream imports to the shim paths and prints every use of a symbol the shim does not cover, with file and line.
-- `tether-migrate -native ./...` (phase 5) rewrites the common patterns to tether's own API and leaves a `// tether-migrate:` note where a person has to decide.
-- `-dry-run` prints a diff instead of writing.
-
-### Migration guides
-
-`docs/migrate/mark3labs.md` and `docs/migrate/go-sdk.md` show the same server and client side by side in the upstream API, the shim and native tether, and list every behavior difference.
-
-### Interop tests
-
-A CI job `interop` (phase 3) runs:
-
-- tether's client against the reference `everything` server and the TypeScript and Python SDK example servers
-- the TypeScript and Python SDK clients against tether's conformance server
-- the MCP Inspector CLI against tether's server
-
-The results table is published in `docs/interop.md` on every release.
+- **Maturity and trust.** go-sdk is official and used by the largest projects. mcp-go-next has no users. Earn it with published conformance, interop and benchmark results on every release, and a first real adopter.
+- **Performance.** The cached list and single-decode design should beat both on servers with many tools, but that is a claim until measured. Earn it with side-by-side benchmarks in phase 3, published even where we lose.
+- **Older revisions.** Both support them in their core. mcp-go-next needs `legacy` (phase 2).
+- **Unverified cells.** Each one gets checked against the source before phase 3, and the matrix is corrected.
+- **Contributors.** One maintainer today. Earn it with labeled issues for every open row and fast reviews.
 
 ## Module and packages
 
-Module path `github.com/raven-clown/tether`. Supported Go versions are the two latest releases (1.26 and 1.27 today).
+Module path `github.com/raven-clown/mcp-go-next`. The root package is named `mcp`. Supported Go versions are the two latest releases (1.26 and 1.27 today).
 
 | Package | Purpose |
 |---|---|
-| `tether` | `Server`, `Client`, `Conn`, `Handler`, `Middleware`, `Request`, registration of tools, resources, prompts and completions, typed tool helpers, `Error` |
-| `protocol` | Wire types for 2026-07-28: requests, results, content blocks, capabilities, `_meta` keys, error codes |
-| `jsonrpc` | JSON-RPC 2.0 messages, decoding and encoding. Public so that third-party transports can implement `Transport` |
-| `jsonschema` | Schema inference from Go types and struct tags, the `Validator` interface, a basic validator |
+| `mcp` (module root) | `Server`, `Client`, `Conn`, `Handler`, `Middleware`, `Request`, `Principal`, toolsets, `Handles`, registration, typed tool helpers, `Error` |
+| `protocol` | Wire types for 2026-07-28 |
+| `jsonrpc` | JSON-RPC 2.0 messages, decoding and encoding, public for custom transports |
+| `jsonschema` | Schema inference from Go types, `SchemaProvider`, `Validator`, a bounded basic validator |
 | `transport/stdio` | stdio server (`Serve`) and client (`Command`, `Pipe`) |
-| `transport/streamable` | Streamable HTTP server (`Handler`) and client (`Dial`) |
-| `tethertest` | In-memory client and server pair, goroutine leak check, golden helpers, MRTR replay check |
+| `transport/streamable` | Streamable HTTP server (`Handler`, with CORS) and client (`Dial`) |
+| `mcptest` | In-memory pair, leak check, replay check, golden helpers |
+| `gateway` | Phase 3: aggregate upstream servers |
+| `middleware` | Phase 4: rate limit, result size limit, HTTP concurrency limit, `slog` request logging |
 | `conformance/server`, `conformance/client` | Programs driven by the official conformance suite |
-| `examples/...` | Small complete programs |
-| `middleware` | Phase 5: rate limit, CORS, result size limit, tool filter, concurrency limit, `slog` logging |
-| `cmd/tether-migrate` | Phase 3: import rewriter and report for projects moving from other libraries |
+| `examples/...`, `docs/cookbook/` | Tested examples and the cookbook |
 
 Phase N ships as v0.N. Separate modules, each with its own `go.mod`, so the core never imports them:
 
 | Module | Phase | Purpose |
 |---|---|---|
-| `github.com/raven-clown/tether/auth` | 2 | OAuth 2.1 for servers and clients |
-| `github.com/raven-clown/tether/legacy` | 2 | Revisions 2025-11-25 and older: handshake, sessions, HTTP+SSE, resumability |
-| `github.com/raven-clown/tether/compat/mark3labs` | 3 | API of `mark3labs/mcp-go` on tether |
-| `github.com/raven-clown/tether/compat/gosdk` | 4 | API of `modelcontextprotocol/go-sdk` on tether |
-| `github.com/raven-clown/tether/ext/tasks` | 5 | `io.modelcontextprotocol/tasks` extension |
-| `github.com/raven-clown/tether/ext/skills` | 5 | Skills over MCP |
-| `github.com/raven-clown/tether/ext/apps` | 5 | MCP Apps (UI) |
-| `github.com/raven-clown/tether/jsonschema/full` | 5 | Full JSON Schema 2020-12 validator behind the `Validator` interface |
-| `github.com/raven-clown/tether/otel` | 5 | OpenTelemetry traces and metrics middleware |
+| `.../mcp-go-next/auth` | 2 | OAuth 2.1 for servers and clients |
+| `.../mcp-go-next/legacy` | 2 | Revisions 2025-11-25 and older: handshake, sessions, HTTP+SSE, resumability |
+| `.../mcp-go-next/ext/tasks` | 4 | Tasks extension |
+| `.../mcp-go-next/ext/skills` | 4 | Skills over MCP |
+| `.../mcp-go-next/ext/apps` | 4 | MCP Apps |
+| `.../mcp-go-next/jsonschema/full` | 4 | Full JSON Schema 2020-12 validator |
+| `.../mcp-go-next/otel` | 4 | OpenTelemetry middleware |
 
 Dependency rules:
 
-- `protocol` imports only the standard library.
-- `jsonrpc` imports only the standard library.
-- `tether` imports `protocol`, `jsonrpc` and `jsonschema`.
-- Transports import `tether` and never the other way around.
-- Library packages never print and never touch `os.Stdout` or `os.Stderr`. The stdio server writes only to the writer it is given.
+- `protocol` and `jsonrpc` import only the standard library.
+- `mcp` imports `protocol`, `jsonrpc` and `jsonschema`.
+- Transports and `gateway` import `mcp`, never the other way around.
+- Library packages never print and never touch `os.Stdout` or `os.Stderr`.
 
 ## Server
 
@@ -257,130 +280,171 @@ Dependency rules:
 type Handler interface {
 	Handle(ctx context.Context, req *Request) (protocol.Result, error)
 }
-
 type HandlerFunc func(ctx context.Context, req *Request) (protocol.Result, error)
-
 type Middleware func(Handler) Handler
 ```
 
-`*Server` implements `Handler`. `srv.Use(mw...)` wraps the method dispatch, so middleware sees every request after version and capability checks and before the method handler. Logging, rate limits, tracing and auth are all middleware. tether ships none in the core except panic recovery, which is always on.
+`*mcp.Server` implements `Handler`. `srv.Use(mw...)` wraps the method dispatch, so middleware sees every request after the version check and before the method handler. Auth, logging, metrics and rate limits are middleware. Panic recovery is always on.
 
-### Request
+### Request and principal
 
-`*tether.Request` is built once per message by the transport:
+`*mcp.Request` is built once per message by the transport:
 
-- `Method string`
-- `Params json.RawMessage`, decoded lazily by the method handler into its own type
-- `Meta`: protocol version, client capabilities, client info, log level, progress token, input responses, plus the raw `_meta` object for extension keys
-- `Header http.Header`, set by HTTP transports and nil on stdio
+- `Method`, and `Params` (raw, decoded lazily by the method handler)
+- `Meta`: protocol version, client capabilities, client info, log level, progress token, input responses, the raw `_meta`
+- `Header http.Header` on HTTP transports, nil on stdio
+- `Principal()`: who is calling, set by auth middleware with `req.SetPrincipal(p)`
 
-The envelope is decoded once. `_meta` is decoded once and shared. Params stay raw until a handler asks for them, so a 1 MiB `tools/call` is parsed one time on its way to the tool.
+```go
+type Principal struct {
+	Subject string
+	Issuer  string
+	Scopes  []string
+	Claims  map[string]any
+}
+```
+
+The owner key of a principal is `Issuer + " " + Subject`. A request without a principal has the empty owner, which is what local stdio servers get.
+
+The envelope and `_meta` are decoded once. Params stay raw until a handler asks for them.
 
 ### Dispatch
 
 For each request the server:
 
-1. Rejects an unsupported protocol version with -32022 (`UnsupportedProtocolVersion`).
+1. Rejects an unsupported protocol version with -32022.
 2. Takes a snapshot of the registry.
-3. Checks client capabilities required by the method and returns -32021 (`MissingRequiredClientCapability`) when one is missing.
-4. Runs middleware, then the method handler.
-5. Sets `resultType` on the result (`complete` unless the handler asked for input), and `ttlMs` and `cacheScope` on list and read results from server options.
+3. Runs middleware.
+4. Resolves the request's toolsets.
+5. Runs the method handler.
+6. Stamps `resultType`, `ttlMs`, `cacheScope` and server info on the result.
 
-Unknown methods return -32601. `srv.HandleMethod(name, h)` registers a handler for a method the spec does not define, such as an extension method, and goes through the same checks and middleware. On the client, `conn.Request(ctx, method, params, &out)` and `conn.Notify(ctx, method, params)` send custom messages.
+Unknown methods return -32601. `srv.HandleMethod(name, h)` registers a method the spec does not define, through the same checks and middleware. The client sends custom messages with `conn.Request` and `conn.Notify`.
 
 ### Registry
 
-Tools, resources, resource templates, prompts and completion handlers live in a registry that is copied on write. Registration takes a lock, builds a new snapshot and swaps it in atomically. A request uses the snapshot it started with from dispatch to result. Registering or removing a tool while requests run is safe and never seen half done.
-
-Lists are sorted by name. Pagination cursors are opaque, encode the last name returned, and stay valid when items are added or removed between pages.
+Tools, resources, templates, prompts and completion live in a copy-on-write registry. A request keeps the snapshot it started with. Lists are sorted by name, and cursors stay valid when items change between pages.
 
 ### Tools
 
 ```go
 func AddTool[In, Out any](s *Server, name, description string, fn ToolFunc[In, Out], opts ...ToolOption)
 type ToolFunc[In, Out any] func(ctx context.Context, req *Request, in In) (Out, error)
-
 func AddRawTool(s *Server, tool protocol.Tool, fn RawToolFunc)
-type RawToolFunc func(ctx context.Context, req *Request, args json.RawMessage) (*protocol.CallToolResult, error)
 ```
 
-- `AddTool` infers `inputSchema` from `In` and `outputSchema` from `Out` through `jsonschema`. Struct tags `json`, `jsonschema:"description=...,enum=a|b,minimum=0"` and Go types decide the schema.
-- When `Out` is a struct, the result carries it in `structuredContent` and a JSON text copy in `content`. When `Out` is `*protocol.CallToolResult`, it is returned as is.
-- Arguments are validated against the input schema before `fn` runs. A validation failure is a tool error result, not a protocol error.
-- `AddRawTool` takes a schema as `json.RawMessage` and passes it through byte for byte. Gateways and proxies use it.
-- Tool annotations, including `x-mcp-header` parameters, are set through `ToolOption`.
+- The input and output schemas are built **once at registration** from the Go types. If `In` or `Out` implements `jsonschema.SchemaProvider` (`MCPSchema() json.RawMessage`), that schema is used and no reflection runs for it.
+- When `Out` is a struct, the result carries it in `structuredContent` with a JSON text copy in `content`. `*protocol.CallToolResult` is returned as is.
+- Arguments are validated before `fn` runs. A failure is a tool error result.
+- `AddRawTool` passes a `json.RawMessage` schema through byte for byte.
+- Annotations, `x-mcp-header` parameters, toolsets and icons are set with `ToolOption`.
 
-### Errors
-
-- A plain `error` returned from a tool becomes a `CallToolResult` with `isError: true` and the error text, as the spec asks for tool execution errors.
-- A `*tether.Error` (code, message, data) becomes a JSON-RPC error. Constructors exist for every code in the spec: `ErrInvalidParams`, `ErrResourceNotFound` (-32602 in 2026-07-28), `ErrHeaderMismatch` (-32020) and the rest.
-- A panic in a handler is recovered and returned as -32603 with a generic message. The panic value and stack go to an optional `ErrorLog` callback, never to the client.
-
-### Multi round-trip requests (MRTR)
-
-2026-07-28 replaces server-to-client requests with `InputRequiredResult`. tether lets a handler write this as a plain call:
+### Toolsets
 
 ```go
-answer, err := tether.Elicit(ctx, req, "confirm", tether.Form[Confirm]{Message: "Delete 3 files?"})
-if err != nil {
-	return out, err
+mcp.AddTool(srv, "list_issues", "List issues", listIssues, mcp.InToolset("issues"))
+srv.DescribeToolset("issues", "Read and write issues")
+srv = mcp.NewServer(info, mcp.WithToolsetSelector(func(ctx context.Context, req *mcp.Request) []string {
+	return strings.Split(req.Header.Get("X-Toolsets"), ",")
+}))
+```
+
+- A tool without `InToolset` is in the `default` toolset, which every request sees.
+- The selector runs once per request. With no selector, every toolset is visible.
+- When the selector's result contains `mcp.ReadOnlyToolsets` (the name `"read-only"`), only tools whose `readOnlyHint` is true stay visible inside the chosen toolsets.
+- A tool outside the request's toolsets is invisible in `tools/list` and answers `tools/call` with the same error as an unknown tool. Hiding never leaks existence.
+- `WithToolFilter(func(ctx, *Request, protocol.Tool) bool)` is the per-tool escape hatch. Requests that go through it skip the list cache, and the docs say so.
+
+### Pre-encoded list cache
+
+Each registry snapshot keeps the encoded `tools/list` pages per toolset combination, built on first use. The cache key is the sorted set of toolset names plus the read-only flag. A registry change builds a new snapshot, so stale pages are never served. Resources, templates and prompts use the same cache.
+
+### Handles instead of sessions
+
+```go
+carts := mcp.NewHandles[Cart](mcp.HandleTTL(30*time.Minute), mcp.HandleLimit(10_000), mcp.OnExpire(releaseCart))
+id, err := carts.Create(req, cart)
+cart, err := carts.Get(req, id)
+err = carts.Update(req, id, cart)
+err = carts.Delete(req, id)
+```
+
+- An ID is 128 random bits, base64url encoded.
+- Every call checks that the stored owner equals the request's principal owner key. An unknown or expired ID returns `mcp.ErrHandleNotFound`. A foreign one returns `mcp.ErrHandleNotFound` as well, so IDs cannot be probed.
+- The memory store bounds both count and age. When the limit is reached, the oldest handle is evicted and `OnExpire` runs.
+- `mcp.WithHandleStore(s)` plugs in any backend that implements `HandleStore`:
+
+```go
+type HandleStore interface {
+	Put(ctx context.Context, id, owner string, value []byte, ttl time.Duration) error
+	Get(ctx context.Context, id string) (owner string, value []byte, err error)
+	Delete(ctx context.Context, id string) error
 }
 ```
 
-`Elicit` is a function and not a method because Go methods cannot take type parameters.
+  Values are JSON encoded for every store. The cookbook has a Redis example outside the core module.
 
-- If the request's `inputResponses` holds the key `confirm`, `Elicit` decodes it into `Confirm` and returns it.
-- If not, `Elicit` records an input request under that key and returns `tether.ErrInputRequired`. The server collects every request recorded during the call and returns one `InputRequiredResult` with all of them.
-- `req.Sample` and `req.Roots` work the same way. Both features are deprecated in the spec and stay supported until it removes them.
-- The spec allows input requests only on `tools/call`, `prompts/get` and `resources/read`. Calling `Elicit`, `Sample` or `Roots` while serving any other method returns an error.
-- `req.State()` and `req.SetState(s)` read and set the opaque `requestState` string, so a handler can carry its own state between rounds instead of recomputing it.
-- An input request needs the matching client capability (`elicitation`, `sampling` or `roots`) in the request's `_meta`. Without it, `Elicit` returns -32021 instead of asking.
+### Cache scope
 
-A handler that needs several answers calls `Elicit` for each before checking errors and returns `errors.Join` of them, so all requests go out in one round.
+List and read results get `cacheScope: private` by default when the request has a principal, or when a toolset selector or tool filter is set. Otherwise they get the server default (`WithCache`). A handler can still set its own.
 
-Because the client retries the whole request, a handler runs from the top on each round. Side effects must come after the last `Elicit`. The docs say so on `Elicit`, and `tethertest.CheckReplaySafe` runs a handler through every round and fails when a side effect hook fires more than once.
+### Errors
 
-### Progress, logging, cancellation
+- A plain `error` from a tool becomes a result with `isError: true`.
+- A `*mcp.Error` becomes a JSON-RPC error. There are constructors for every spec code.
+- A panic becomes -32603 with a generic message. The stack goes to `WithErrorLog`.
 
-- `req.Progress(done, total, message)` sends `notifications/progress` when the request carried a progress token and does nothing otherwise.
-- `req.Log(level, data)` sends `notifications/message` when the level is at or above the request's `io.modelcontextprotocol/logLevel`. A request without a log level gets no log messages at all, as the spec requires.
-- Both go through a `Notifier` the transport puts on the request. Every transport delivers a request's notifications before its response.
-- Cancellation arrives as `ctx` cancellation: `notifications/cancelled` on stdio, a closed response stream on HTTP.
+### Multi round-trip requests
+
+```go
+answer, err := mcp.Elicit(ctx, req, "confirm", mcp.Form[Confirm]{Message: "Delete 3 files?"})
+```
+
+- With an answer under the key in `inputResponses`, `Elicit` returns it. Without one, it records a request and returns `mcp.ErrInputRequired`. The server collects all recorded requests into one `InputRequiredResult`.
+- `req.Sample` and `req.Roots` work the same way. Input requests are allowed only on `tools/call`, `prompts/get` and `resources/read`, and need the matching client capability (else -32021).
+- `req.State()` and `req.SetState(s)` carry `requestState`.
+- Several answers: call `Elicit` for each and return `errors.Join` of the errors.
+- The handler runs from the top each round, so side effects go after the last `Elicit`. `mcptest.CheckReplaySafe` checks it.
+
+### Progress, logging, cancellation, metrics
+
+- `req.Progress` sends only when the request has a progress token. `req.Log` sends only at or above the request's log level, and never without one.
+- Every transport delivers a request's notifications before its response, and nothing after it.
+- Cancellation arrives as `ctx` cancellation.
+- `WithObserver(o)` gets `OnStart(req)` and `OnEnd(req, result, err, duration)` for every request, so metrics such as in-flight counts need no middleware.
 
 ### Subscriptions
 
-`subscriptions/listen` is a long-lived request. A `broker` inside the server holds the listeners and is the only stateful part of the server.
-
-- `srv.NotifyToolsChanged()`, `NotifyPromptsChanged()`, `NotifyResourcesChanged()` and `NotifyResourceUpdated(uri)` publish to the broker. Registry changes publish list-changed events on their own.
-- A listen request first gets `notifications/subscriptions/acknowledged` with the subset of the filter the server supports, then only the notification types the client asked for. Every notification on the stream carries `io.modelcontextprotocol/subscriptionId` set to the listen request's ID.
-- When the server ends a stream gracefully it sends the `subscriptions/listen` result with the same `subscriptionId` in `_meta`. On stdio it also sends `notifications/cancelled` with that ID, the one case where a server sends a cancellation.
-- Each listener has a bounded buffer (default 64). A listener that falls behind is closed with an error and the client is expected to listen again. Publishing never blocks and never fails a request.
-- Listeners end when their context ends. `srv.Close()` ends all of them.
+`subscriptions/listen` streams through a bounded broker:
+- The ack comes first.
+- Only the notification types the client asked for are sent.
+- `subscriptionId` is on every notification.
+- A graceful end returns the listen result, and on stdio also sends `notifications/cancelled`.
+- A slow listener is closed. Publishing never blocks. Registry changes publish list-changed events.
 
 ### Discovery
 
-`server/discover` is answered from the registry and server info: capabilities, extensions, supported protocol versions. Nothing to register by hand.
+`server/discover` is answered from the registry and server info.
 
 ## Client
 
 ```go
-c := tether.NewClient(tether.Info{Name: "agent", Version: "0.1.0"}, tether.ClientOptions{
-	OnElicit: askUser,
-})
-conn, err := c.Connect(ctx, stdio.Command("weather-server"))
-out, err := tether.Call[ForecastOut](ctx, conn, "forecast", ForecastIn{City: "Bangkok"})
-for ev, err := range conn.Listen(ctx, tether.ListenTools|tether.ListenResources) {
-	...
-}
+c := mcp.NewClient(mcp.Info{Name: "agent", Version: "0.1.0"}, mcp.ClientOptions{OnElicit: askUser})
+conn, err := c.Connect(ctx, streamable.Dial("https://example.com/mcp"))
+out, err := mcp.Call[ForecastOut](ctx, conn, "forecast", ForecastIn{City: "Bangkok"})
 ```
 
-- `Connect` does no handshake. It returns a `*Conn` bound to a transport. `conn.Discover(ctx)` is optional and caches the result.
-- Every request carries `_meta` with protocol version, client capabilities and client info.
-- Typed helpers: `tether.Call[Out]`, `conn.ListTools`, `conn.ReadResource`, `conn.GetPrompt`, `conn.Complete`, plus iterators that walk pagination (`conn.Tools(ctx)` returns `iter.Seq2[protocol.Tool, error]`).
-- **MRTR loop.** On `input_required` the client calls `OnElicit`, `OnSample` or `OnRoots` for each input request, then retries with `inputResponses` and the `requestState` it was given. It stops after `MaxInputRounds` (default 8). MRTR has no way to answer an input request with an error, so an input request the client has no handler for fails the call with a method-not-found `*tether.Error`. The client advertises a capability only when its handler is set, so a well-behaved server never asks.
-- `protocol.Tool` keeps `inputSchema` and `outputSchema` as `json.RawMessage`, exactly as received, for clients that hand them to a model.
-- For Streamable HTTP, `tools/call` needs `Mcp-Param-*` headers for arguments the tool marks with `x-mcp-header`. When the transport says it needs them, the connection fetches the tool list once, caches it until `ttlMs` runs out or a tools list-changed event arrives, and passes the headers to the transport through the context.
-- `tether.WithProgress(fn)` on a call receives that call's progress notifications.
+- `Connect` does no I/O. Every request carries `_meta` with version, capabilities and client info.
+- Typed helpers, pagination iterators, custom requests, and an automatic input-request loop with a round limit. A missing handler fails with method not found.
+- **Resilience:**
+  - A transport error fails only that call. The `Conn` stays usable until `Close`.
+  - `ClientOptions.Retry` (default 3 attempts, exponential backoff from 100 ms to 2 s with jitter, injectable clock) retries network errors, 429 (honoring `Retry-After`), 502, 503 and 504 for the safe methods: `server/discover`, the four list methods, `resources/read`, `prompts/get` and `completion/complete`. `tools/call` is retried only for tools whose cached annotations say `idempotentHint: true`.
+  - Every call keeps its context deadline, including connect, headers and each streamed event.
+- Errors:
+  - `*mcp.Error` for JSON-RPC errors.
+  - `*streamable.HTTPError{Status, Header, Body}` (body up to 4 KiB) for HTTP failures without a JSON-RPC body.
+  - `mcp.ErrClosed` after `Close`.
+- For Streamable HTTP, `Mcp-Param-*` headers come from a tool list cached per `ttlMs` and invalidated by list-changed events.
 
 ### Transport interface
 
@@ -392,119 +456,142 @@ type Transport interface {
 }
 ```
 
-One request, one call. `notify` receives notifications tied to that request, in order, before `RoundTrip` returns. `Close` returns only after every goroutine the transport started has exited.
-
 ## Transports
 
 ### stdio
 
-Server: `stdio.Serve(ctx, h tether.Handler, r io.Reader, w io.Writer, opts...)`.
-
-- Newline-delimited JSON-RPC with a maximum line size (default 16 MiB).
-- A final line without a trailing newline is still read.
-- On EOF the server stops reading, waits for in-flight requests to write their responses, then returns.
-- Requests run concurrently up to a limit (default 16). Writes go through one writer goroutine, and a request's notifications are queued ahead of its response.
-
-Client: `stdio.Command(name, args...)` starts a process. `stdio.Pipe(r, w)` wraps existing streams.
-
-- Responses are matched by ID. Progress notifications are matched by the progress token the client set, and listen notifications by `subscriptionId`. stdio has no other way to tie a notification to a request, so anything else (log messages, for example) goes to an optional `WithUnrouted` callback.
-- Shutdown closes stdin, waits up to a timeout (default 5s), then kills the process.
-- stderr goes to an optional callback and is never treated as an error.
+- **Server:** `stdio.Serve(ctx, h, r, w, opts...)`.
+  - Newline-delimited, with a line limit.
+  - Reads a final line that has no newline.
+  - Drains in-flight requests at EOF, up to a drain timeout.
+  - Concurrency limit and a single writer.
+- **Client:** `stdio.Command` and `stdio.Pipe`.
+  - Matches responses by ID, progress by token and listen notifications by subscription ID.
+  - Anything else goes to `WithUnrouted`.
+  - Shutdown is close stdin, wait, kill.
 
 ### Streamable HTTP
 
-Server: `streamable.Handler(h tether.Handler, opts...)` returns an `http.Handler`.
+**Server:** `streamable.Handler(h, opts...)` is a plain `http.Handler` that mounts anywhere.
+- POST only. GET and DELETE return 405.
+- Origin allowlist (localhost by default) and 403 on mismatch.
+- Body limit (default 4 MiB).
+- Standard headers checked against the body, -32020 on mismatch.
+- 202 for notifications. JSON, or SSE once the handler sends a notification.
+- Status mapping: 400 for -32020, -32021 and -32022, 404 for -32601.
 
-- POST only. GET and DELETE return 405. `Mcp-Session-Id` and `Last-Event-ID` are ignored.
-- `Origin` is checked against an allowlist (default: localhost, 127.0.0.1, [::1], and requests without `Origin`). A mismatch returns 403.
-- `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` and `Mcp-Param-*` are checked against the body. A mismatch returns 400 with -32020. Base64 encoded values (`=?base64?...?=`) are decoded first.
-- Request bodies are limited (default 4 MiB). Larger bodies get 413.
-- An unsupported protocol version returns 400 and an unknown method returns 404, each with the JSON-RPC error in the body.
-- A notification gets 202. A request gets `application/json` when the handler sent no notifications, and switches to `text/event-stream` on the first notification, so notifications go out before the result.
-- The handler's `ctx` ends when the client closes the stream.
+**CORS:** `streamable.WithCORS(origins...)`, on for the localhost origins by default.
+- Preflight `OPTIONS` gets 204.
+- `Access-Control-Allow-Headers` lists `Content-Type`, `Authorization`, `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, and every `Mcp-Param-*` header the server's tools declare.
+- `WWW-Authenticate` is exposed.
 
-Client: `streamable.Dial(url, opts...)` returns a `Transport`.
-
-- Sends `Accept: application/json, text/event-stream` and all required MCP headers on every request, base64 encoding non-ASCII values.
-- Takes a `Doer` interface (`Do(*http.Request) (*http.Response, error)`), so callers bring their own auth, retries and tracing. The default is `http.DefaultClient`.
-- The SSE reader handles a UTF-8 BOM and CR, LF and CRLF line endings, and is fuzzed.
-- Respects context deadlines on connect, on headers and on each event.
+**Client:** `streamable.Dial(url, opts...)`.
+- Required headers with base64 for non-ASCII values.
+- A `Doer` interface for auth, tracing and custom transports.
+- A fuzzed SSE reader.
+- Typed HTTP errors.
 
 ### In-memory
 
-`tethertest.NewPair(h)` returns a client `Conn` wired to a handler through real JSON encoding and the same ordering rule as the other transports. Tests of servers and clients use it.
+`mcptest.NewPair` wires a client to a handler through real JSON encoding with the same ordering rule.
+
+## Gateway (phase 3)
+
+```go
+gw := gateway.New(
+	gateway.Upstream("github", streamable.Dial(githubURL), gateway.Prefix("gh_")),
+	gateway.Upstream("grafana", stdio.Command("mcp-grafana")),
+)
+srv.Mount(gw)
+```
+
+- Tool, prompt and resource names get the upstream's prefix.
+- Upstream clients are keyed by credential (`gateway.CredentialKey(func(*Request) string)`), never by caller, so memory does not grow with the number of callers.
+- Upstream lists are cached per `ttlMs`, and discovery retries with backoff.
+- Input requests, progress and cancellation pass through in both directions.
 
 ## Testing
 
-- Tests come with every change and are written first. Table-driven where there is a table.
-- No network in unit tests (`httptest` is fine), no bare `time.Sleep`, every test passes on Windows.
-- `tethertest.CheckNoLeaks(t)` runs in every transport test and fails on goroutines left behind.
-- Golden wire tests: example messages from the spec live in `testdata/spec/` and are checked for round trips. A test compares the fields of `protocol` types with the official `schema.json`, which is vendored in `testdata/`.
-- Fuzz tests for the JSON-RPC decoder, the SSE reader and header decoding.
-- Benchmarks for a 1 MiB `tools/call` through each transport.
-- The conformance job runs the official suite (`npx @modelcontextprotocol/conformance`) against `conformance/server` and `conformance/client`. Known failures go in `conformance-baseline.yml`. For v0.1 the baseline may hold only scenarios for revisions before 2026-07-28 (they belong to `legacy`), auth (v0.2) and extensions such as tasks and skills (v0.3), each with a comment saying which.
-- Coverage stays at 80% or more.
+- Tests come with every change and are written first, table-driven where there is a table.
+- No network in unit tests, no bare sleeps, Windows passes.
+- Leak check in every transport test.
+- Golden wire tests against the vendored spec examples, and a field comparison with `schema.json`.
+- Fuzz tests for JSON-RPC, SSE and headers.
+- Benchmarks:
+  - a 1 MiB `tools/call`
+  - `tools/list` with 500 tools across 20 toolsets, cold and cached
+  - handle create and get under contention
+- Conformance in CI with a reviewed baseline.
+- Coverage of 80% or more.
+
+## Docs
+
+- `README.md`: what it is and a 20-line server.
+- `docs/getting-started.md`.
+- `docs/cookbook/`: one page per real question, each backed by a program under `examples/` that CI builds and tests:
+  - mount in net/http, Gin, chi and echo
+  - read headers and the principal in a tool
+  - bearer auth
+  - toolsets per user
+  - handles for state across calls
+  - progress
+  - elicitation
+  - CORS for browser clients
+  - running several instances behind a load balancer
+  - testing with `mcptest`
+  - a Redis handle store
+- `docs/coming-from.md` (phase 3): equivalent code for common mark3labs and go-sdk patterns, side by side. A guide, not a shim.
+- `docs/spec-coverage.md`: one row per spec feature with status and issue.
 
 ## Project and contributor setup
 
-- License Apache-2.0 with a `NOTICE` file. No CLA and no DCO sign-off; Apache-2.0 section 5 covers contributions.
-- `AGENTS.md`: commands, layout and rules for anyone working in the repository, kept current in the same commit as any change to them.
-- `CONTRIBUTING.md`: setup, running tests and the conformance suite locally, how to pick an issue, branch names, Conventional Commits, review expectations.
-- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1) and `SECURITY.md` (GitHub private vulnerability reporting).
-- Issue forms: bug report, feature request, spec gap (names the spec section), plus `config.yml` that turns off blank issues and points questions to Discussions. A pull request template with a checklist.
-- `CODEOWNERS` naming `@raven-clown` for everything, so every PR asks for review.
+- License Apache-2.0 with `NOTICE`. No CLA and no DCO.
+- `AGENTS.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md` (private vulnerability reporting).
+- Issue forms (bug, feature, spec gap, `config.yml` pointing questions to Discussions), a pull request template, `CODEOWNERS` with `@raven-clown`.
 - Labels:
   - kind: `bug`, `enhancement`, `docs`, `breaking`, `spec`
   - help: `good first issue`, `help wanted`
-  - area: `area/server`, `area/client`, `area/stdio`, `area/http`, `area/schema`, `area/auth`, `area/legacy`, `area/compat`, `area/ext`, `area/ci`
-  - priority: `priority/p0` (breaks users), `priority/p1` (next release), `priority/p2` (planned), `priority/p3` (nice to have)
-- Milestones `v0.1` to `v0.5` and `v1.0`, one per phase.
-- A GitHub Project "tether roadmap" with one issue per plan task and per roadmap row, fields Phase, Area and Priority, and board columns Todo, In progress, In review and Done.
+  - area: `area/server`, `area/client`, `area/stdio`, `area/http`, `area/schema`, `area/auth`, `area/legacy`, `area/gateway`, `area/ext`, `area/ci`
+  - priority: `priority/p0` to `priority/p3`
+- Milestones `v0.1` to `v0.4` and `v1.0`.
+- A GitHub Project "mcp-go-next roadmap" with one issue per plan task and roadmap task, and the fields Phase, Area and Priority.
 - Repository settings:
   - Discussions on
   - private vulnerability reporting on
-  - approval required before workflows run on pull requests from all outside contributors
+  - approval before workflows run for all outside contributors
   - squash merge only
-  - delete branches after merge
+  - delete branch on merge
 - Ruleset on `main`:
   - pull request required
-  - required status checks `test`, `lint`, `vuln`, `coverage` and `conformance`
+  - required checks `test`, `lint`, `vuln`, `coverage`, then `conformance` once it exists
   - conversations resolved before merge
   - linear history
   - no force push and no deletion
-  - the maintainer may bypass only for the release tag
-- `docs/spec-coverage.md`: one row per spec feature with status and issue link.
-- `CHANGELOG.md` in Keep a Changelog form. Releases are tags `vX.Y.Z` on main with notes from the changelog.
+- `CHANGELOG.md` in Keep a Changelog form, releases as `vX.Y.Z` tags.
 
 ### CI
 
-GitHub Actions on every pull request and on main:
-
-- `test`: ubuntu, macos and windows with Go 1.26 and 1.27, `go test -race ./...`
-- `lint`: golangci-lint
-- `vuln`: govulncheck
-- `conformance`: the official suite against both programs
-- `coverage`: fails under 80%
-- `interop` (phase 3): reference servers and clients, see Compatibility
-- `compat` (phase 3): `apisurface` check and upstream example builds against each shim
-- Dependabot for GitHub Actions and for the Go modules outside the core
+- `test`: ubuntu, macos and windows with Go 1.26 and 1.27, `-race`
+- `lint`, `vuln`, `coverage`
+- `conformance`
+- `interop` from phase 3
+- `bench` on pull requests touching hot paths, reporting the change against main
+- Dependabot for Actions and for modules outside the core
 
 ## Roadmap
 
-`docs/plans/roadmap.md` maps every matrix row to a phase and outlines the tasks for each phase. In short:
+`docs/plans/roadmap.md` maps every matrix row to a phase:
 
-- **Phase 1 (v0.1)**: the core, both transports, server and client, test kit. Every 2026-07-28 core conformance scenario passes.
-- **Phase 2 (v0.2)**: `auth` and `legacy`. Auth conformance suite passes, older revisions work.
-- **Phase 3 (v0.3)**: `compat/mark3labs`, `tether-migrate`, migration guide, interop job, side-by-side benchmarks.
-- **Phase 4 (v0.4)**: `compat/gosdk` and its guide.
-- **Phase 5 (v0.5)**: extensions (tasks, skills, apps), `jsonschema/full`, `otel`, `middleware`, remaining auth extensions, `tether-migrate -native`.
-- **v1.0**: API freeze, full conformance suite, tier listing application.
+- **Phase 1 (v0.1):** the core, toolsets and list cache, principal and handles, both transports with CORS, a resilient client, the test kit, the cookbook. Every 2026-07-28 core conformance scenario passes.
+- **Phase 2 (v0.2):** `auth` and `legacy`.
+- **Phase 3 (v0.3):** `gateway`, interop, side-by-side benchmarks, matrix verification, the coming-from guide.
+- **Phase 4 (v0.4):** extensions, `jsonschema/full`, `otel`, `middleware`, remaining auth.
+- **v1.0:** API freeze, full conformance, tier listing application.
 
 ## Risks
 
-- **The spec moves.** 2026-07-28 is recent and extensions are still settling. `protocol` is the only place wire shapes live, and the schema comparison test flags drift when the vendored `schema.json` is updated.
-- **MRTR replay surprises handler authors.** Covered by docs, an example, and `tethertest.CheckReplaySafe`.
-- **Few hosts may speak 2026-07-28 yet.** The `legacy` module in v0.2 covers older clients. Until then tether servers reach only up-to-date clients, which the README states.
-- **One maintainer at the start.** The contributor setup, the coverage table and labeled issues exist so that others can pick up work without a meeting.
-- **Scope.** Covering every row and two shims is years of work for one person. Phases ship on their own, each is useful without the next, and the matrix shows what is not done yet instead of hiding it.
-- **Shims chase moving targets.** Both upstream libraries release often. Shims pin a version, `apisurface` shows the gap after each upstream release, and bumping the pin is a labeled `good first issue` style task.
+- **The spec moves.** `protocol` is the only place wire shapes live, and the schema comparison test flags drift.
+- **Input-request replay surprises handler authors.** Docs, an example and `mcptest.CheckReplaySafe`.
+- **Few hosts may speak 2026-07-28 yet.** `legacy` in phase 2 covers older clients, and the README says so until then.
+- **The official SDK has momentum.** The largest projects just finished moving to go-sdk and will not move again without a clear gain. mcp-go-next earns a place by solving the problems they reported, with measurements, and by being easy to try in one tool at a time.
+- **One maintainer and a large scope.** Phases ship on their own, the matrix shows what is not done, and labeled issues let others help.

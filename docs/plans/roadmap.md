@@ -1,104 +1,85 @@
-# tether roadmap
+# mcp-go-next roadmap
 
-Every row of the feature matrix in `docs/design.md` lands in exactly one phase below. Phase N ships as v0.N. Each phase is useful on its own, and later phases never block a release of an earlier one.
+Every row of the feature matrix in `docs/design.md` lands in exactly one phase below. Phase N ships as v0.N. Each phase is useful on its own.
 
-Phase 1 has a full task-by-task plan in `docs/plans/2026-11-22-v0.1.md`. Phases 2 to 5 are outlined here. Each gets a full plan written when the phase before it is merged, because those plans depend on names and types phase 1 settles. Writing them now would mean guessing at signatures and rewriting them later.
+Phase 1 has a full task-by-task plan in `docs/plans/2026-11-22-v0.1.md`. Phases 2 to 4 are outlined here and get full plans when the phase before them is merged, because those plans depend on names and types phase 1 settles.
 
-Each outline task becomes one GitHub issue with its labels, milestone and Project fields. Small, self-contained tasks get `good first issue`.
+Each outline task becomes one GitHub issue with labels, a milestone and Project fields. Self-contained tasks get `good first issue`.
 
-## Phase 1: core (v0.1)
+## Phase 1: core for servers with many tools (v0.1)
 
-**Rows:** B1, B3 to B14, S1 to S4, S6 to S10, S12, S13, S15 (stdio), C1 to C6, T1 to T6, E4, O2, O4, O5, O7, O8.
+**Rows:** B1, B3 to B14, S1 to S4, S6 to S18, S20 (stdio), C1 to C10, T1 to T6, T9, T10, E4, O2, O4, O5, O7, O8, O9.
 
-**Plan:** `docs/plans/2026-11-22-v0.1.md`, tasks 1 to 23.
+**Plan:** `docs/plans/2026-11-22-v0.1.md`.
 
-**Done when:** every 2026-07-28 core conformance scenario passes, CI is green on three systems, coverage is at least 80%.
+**Done when:**
+- every 2026-07-28 core conformance scenario passes
+- CI is green on three systems
+- coverage is at least 80%
+- every cookbook page has a tested example
 
 ## Phase 2: auth and legacy (v0.2)
 
 **Rows:** B2, T7, T8, A1 to A8.
 
-**Tasks:**
-
-1. `auth` module skeleton, `go.mod`, CI wiring. The core still has no dependencies.
-2. Protected resource metadata handler (RFC 9728) with resource matching per the RFC. Covers A1 and go-sdk #1538.
-3. Bearer token middleware with a `TokenVerifier` interface, audience check and principal on the request context. Covers A2.
-4. `WWW-Authenticate` with `resource_metadata`, 403 `insufficient_scope`, and a step-up helper. Covers A3 and go-sdk #1248.
-5. Authorization server metadata discovery (RFC 8414 and OIDC) for clients.
-6. Client OAuth 2.1 authorization code with PKCE, pluggable token store, RFC 8707 `resource` on every request, RFC 9207 `iss` check. Covers A4 and A7.
-7. Client ID Metadata Documents, then pre-registration, then DCR with scopes, in that priority order. Covers A5, A6 and go-sdk #1102.
-8. Refresh before expiry with a clock you can inject in tests. Covers A8 and mark3labs #1122.
-9. Auth conformance suite in CI. Baseline holds only the phase 5 extension scenarios.
+1. `auth` module skeleton and CI wiring.
+2. Protected resource metadata handler with resource matching per RFC 9728 (A1, go-sdk #1538).
+3. Bearer token middleware with a `TokenVerifier` interface and audience check that sets the request principal (A2).
+4. `WWW-Authenticate` with `resource_metadata`, 403 `insufficient_scope`, step-up helper (A3, go-sdk #1248).
+5. Authorization server metadata discovery (RFC 8414 and OIDC).
+6. Client OAuth 2.1 with PKCE, RFC 8707 `resource`, RFC 9207 `iss` check (A4, A7).
+7. Client ID Metadata Documents, then pre-registration, then DCR with scopes (A5, A6, go-sdk #1102).
+8. Token refresh before expiry, plus a `TokenStore` interface to save and restore token sets (A8, mark3labs #1122, go-sdk #901).
+9. Auth conformance suite in CI.
 10. `legacy` module skeleton.
-11. `legacy` initialize handshake and `Mcp-Session-Id`, turned into per-request `_meta` at the transport edge. Covers B2.
-12. `legacy` server-to-client requests mapped onto MRTR handlers, so a tool written with `Elicit` works for 2025-11-25 clients.
+11. `legacy` initialize handshake and `Mcp-Session-Id` mapped to per-request `_meta` (B2).
+12. `legacy` server-to-client requests mapped onto input-request handlers.
 13. `legacy` GET stream and resource subscribe mapped onto the broker.
-14. `legacy` HTTP+SSE transport, server and client. Covers T7.
-15. `legacy` resumability with an `EventStore` interface and a memory store. Covers T8.
-16. Legacy conformance scenarios (`initialize`, `session-lifecycle`, `sse-polling`, `sse-multiple-streams`, `sse-retry`) removed from the baseline.
+14. `legacy` HTTP+SSE transport, server and client (T7).
+15. `legacy` resumability with an `EventStore` interface (T8).
+16. Legacy conformance scenarios removed from the baseline.
 
-**Done when:** the conformance baseline holds only phase 5 items, and a 2025-11-25 client talks to a tether server through `legacy`.
+**Done when:** the baseline holds only phase 4 items, and a 2025-11-25 client works through `legacy`.
 
-## Phase 3: drop-in from mark3labs, interop, benchmarks (v0.3)
+## Phase 3: gateways, interop, proof (v0.3)
 
-**Rows:** O6, O9, plus the "not proven yet" items for performance and older revisions.
+**Rows:** G1 to G4, O6, O10.
 
-**Tasks:**
+1. Check every "unverified" matrix cell, including the three smaller libraries, against their source, and correct the matrix.
+2. `gateway` package: upstream registry and name prefixes (G1).
+3. Upstream clients keyed by credential, with a test that memory stays flat as callers grow (G2, mcp-grafana #1001).
+4. Upstream list cache and discovery retries (G3, mcp-grafana #1071).
+5. Pass-through of input requests, progress and cancellation (G4).
+6. `interop` CI job: our client against the reference `everything` server and the TypeScript and Python SDK example servers. Their clients and the Inspector CLI against our server. Results in `docs/interop.md` (O6).
+7. Side-by-side benchmarks against mark3labs and go-sdk:
+   - `tools/list` with 500 tools
+   - a 1 MiB `tools/call`
+   - 1,000 concurrent small calls
+   - memory per 1,000 callers
 
-1. Check every "unverified" matrix cell against both competitors' source and correct the matrix.
-2. `internal/cmd/apisurface`: list the exported API of a module at a given version using only the standard library (`go/parser`, and `go/types` with the source importer), and diff two lists.
-3. `compat/mark3labs` module skeleton pinned to the current mark3labs release, with `docs/compat-status.md` generated by `apisurface`.
-4. Shim `mcp` package: types, constructors, tool and result helpers.
-5. Shim `server` package: `MCPServer`, options, stdio, Streamable HTTP, hooks, tool and resource middleware, session APIs emulated through `legacy`.
-6. Shim `client` and `client/transport` packages: clients, stdio, Streamable HTTP, in-process, OAuth options on `auth`.
-7. Shim `mcptest`.
-8. `compat` CI job: copy upstream `examples/` at the pinned version, rewrite imports, build, run tests that exist. `apisurface` must not lose a covered symbol.
-9. Run mark3labs's own package tests against the shim where they only use exported API. Record the pass rate in `docs/compat-status.md`.
-10. `cmd/tether-migrate`: import rewrite, unsupported symbol report with file and line, `-dry-run`.
-11. `docs/migrate/mark3labs.md` with side-by-side examples and every behavior difference.
-12. `interop` CI job: tether client against the reference `everything` server and the TypeScript and Python SDK example servers. Their clients and the Inspector CLI against tether's server. Results in `docs/interop.md`.
-13. Side-by-side benchmarks against mark3labs and go-sdk for a 1 MiB `tools/call`, list with 1,000 tools, and 1,000 concurrent small calls. Published in `docs/benchmarks.md` with the machine and versions. If tether is not faster somewhere, the page says so.
+   Published in `docs/benchmarks.md` with machine and versions, including results where we lose.
+8. `docs/coming-from.md`: equivalent code for common mark3labs and go-sdk patterns (O10).
 
-**Done when:** every upstream example builds against the shim, `docs/compat-status.md` shows the covered share of the API, and the interop matrix is green.
+**Done when:** the interop matrix is green and the benchmark page is published.
 
-## Phase 4: drop-in from go-sdk (v0.4)
+## Phase 4: extensions and operations (v0.4)
 
-**Rows:** O10.
+**Rows:** S5, S19, S20 (HTTP), A9, A10, E1 to E3, O1, O3.
 
-**Tasks:**
-
-1. `compat/gosdk` module skeleton pinned to the current go-sdk release, with its `docs/compat-status.md` section.
-2. Shim `mcp` package: `Server`, `Client`, `AddTool` with its generic form, sessions emulated through `legacy`, transports (`StdioTransport`, `CommandTransport`, `StreamableHTTPHandler`, `StreamableClientTransport`, in-memory).
-3. Shim `jsonrpc` package.
-4. Shim `auth` and `oauthex` packages on tether `auth`.
-5. Schema tags: accept go-sdk's `jsonschema:"<description>"` form in the shim so structs move unchanged.
-6. `compat` CI job for go-sdk examples and exported-API tests.
-7. `tether-migrate` support for go-sdk imports.
-8. `docs/migrate/go-sdk.md`.
-
-**Done when:** every go-sdk example builds against the shim and the guide lists every difference.
-
-## Phase 5: extensions, operations, remaining auth (v0.5)
-
-**Rows:** S5, S11, S14, S15 (HTTP), T9, A9, A10, E1 to E3, O1, O3.
-
-**Tasks:**
-
-1. `jsonschema/full` module: full 2020-12 validator behind `Validator`. Covers S5.
-2. `middleware` package: tool filter on the request principal (S11), result size limit (S14), HTTP concurrency limit (S15), CORS (T9), rate limit keyed by principal (O3), `slog` request logging (O2 adapter).
-3. `otel` module: traces and metrics middleware, trace context through `_meta`. Covers O1.
-4. `ext/tasks`: `tasks/get`, `tasks/update`, a task store interface with a memory store, and the tasks conformance scenarios. Covers E1.
-5. `ext/skills` and its conformance scenarios. Covers E2.
-6. `ext/apps`. Covers E3.
-7. `auth` client credentials, enterprise-managed authorization and token exchange. Covers A9.
-8. `auth` DPoP for clients and servers. Covers A10.
-9. `tether-migrate -native` for the common patterns of both libraries.
+1. `jsonschema/full` module (S5).
+2. `middleware` package: result size limit (S19), HTTP concurrency limit (S20), rate limit by principal (O3), `slog` request logging.
+3. `otel` module with W3C trace context in `_meta` (O1).
+4. `ext/tasks` with a task store interface and the tasks conformance scenarios (E1).
+5. `ext/skills` and its conformance scenarios (E2).
+6. `ext/apps` (E3).
+7. `auth` client credentials, enterprise-managed authorization, token exchange (A9).
+8. `auth` DPoP (A10).
 
 **Done when:** the conformance baseline is empty.
 
 ## v1.0
 
-1. API review of every exported name against how phase 1 to 5 users actually call it. Breaking changes are listed in the changelog before the freeze.
+1. API review against how phase 1 to 4 users actually call it. Breaking changes are listed before the freeze.
 2. Full conformance suite with an empty baseline on every release.
 3. Apply for a listing on the MCP SDK tiers page.
 4. Publish conformance, interop and benchmark results with the release.
@@ -109,18 +90,17 @@ Each outline task becomes one GitHub issue with its labels, milestone and Projec
 |---|---|
 | B1, B3 to B14 | 1 |
 | B2 | 2 |
-| S1 to S4, S6 to S10, S12, S13 | 1 |
-| S15 | 1 (stdio), 5 (HTTP) |
-| S5, S11, S14 | 5 |
-| C1 to C6 | 1 |
-| T1 to T6 | 1 |
+| S1 to S4, S6 to S18 | 1 |
+| S5, S19 | 4 |
+| S20 | 1 (stdio), 4 (HTTP) |
+| C1 to C10 | 1 |
+| T1 to T6, T9, T10 | 1 |
 | T7, T8 | 2 |
-| T9 | 5 |
 | A1 to A8 | 2 |
-| A9, A10 | 5 |
+| A9, A10 | 4 |
+| G1 to G4 | 3 |
 | E4 | 1 |
-| E1 to E3 | 5 |
-| O2, O4, O5, O7, O8 | 1 |
-| O6, O9 | 3 |
-| O10 | 4 |
-| O1, O3 | 5 |
+| E1 to E3 | 4 |
+| O2, O4, O5, O7, O8, O9 | 1 |
+| O6, O10 | 3 |
+| O1, O3 | 4 |
