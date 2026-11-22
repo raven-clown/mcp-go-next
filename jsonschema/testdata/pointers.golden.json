@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "in": {
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "v"
+      ],
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "opt": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "pp": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "s": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "Score": {
+      "type": "number"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "age": {
+      "type": "integer"
+    },
+    "count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "type": "string"
+    },
+    "zero": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "Score",
+    "active",
+    "count",
+    "name"
+  ],
+  "type": "object"
+}

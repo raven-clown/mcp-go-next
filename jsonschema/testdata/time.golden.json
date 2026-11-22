@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "any": {},
+    "asStr": {
+      "type": "string"
+    },
+    "at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "maybe": {
+      "format": "date-time",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "num": {
+      "type": "number"
+    },
+    "raw": {}
+  },
+  "required": [
+    "any",
+    "asStr",
+    "at",
+    "num",
+    "raw"
+  ],
+  "type": "object"
+}

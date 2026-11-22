@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "owner": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "owner"
+  ],
+  "type": "object"
+}

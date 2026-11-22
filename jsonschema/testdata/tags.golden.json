@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "city": {
+      "description": "City name, in English",
+      "format": "uri",
+      "maxLength": 40,
+      "minLength": 1,
+      "pattern": "^[A-Z]",
+      "title": "City",
+      "type": "string"
+    },
+    "days": {
+      "default": 3,
+      "maximum": 14,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "flags": {
+      "items": {
+        "type": "boolean"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "quiet": {
+      "default": true,
+      "type": "boolean"
+    },
+    "ratio": {
+      "enum": [
+        0.5,
+        1.5
+      ],
+      "type": "number"
+    },
+    "unit": {
+      "default": "c",
+      "enum": [
+        "c",
+        "f"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "city",
+    "days",
+    "flags",
+    "quiet",
+    "ratio",
+    "unit"
+  ],
+  "type": "object"
+}

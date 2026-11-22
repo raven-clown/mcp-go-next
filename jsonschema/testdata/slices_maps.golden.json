@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "blob": {
+      "contentEncoding": "base64",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "byId": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "fixed": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "type": "array"
+    },
+    "ints": {
+      "items": {
+        "type": "integer"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "matrix": {
+      "items": {
+        "items": {
+          "type": "integer"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "scores": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "blob",
+    "byId",
+    "fixed",
+    "ints",
+    "matrix",
+    "scores"
+  ],
+  "type": "object"
+}
