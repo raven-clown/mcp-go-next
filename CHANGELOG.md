@@ -8,6 +8,12 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+### Added
+
+- `Principal`, set by auth middleware with `req.SetPrincipal`, for knowing who is calling without sessions. (#79)
+- `Handles[T]`, for state a client refers to by ID across requests, such as a cart or a query cursor. Each value belongs to the principal that created it, and any other principal gets `ErrHandleNotFound`, the same as for an unknown ID. Handles expire after a TTL, and the memory store keeps at most 10,000 by default. A `HandleStore` such as Redis can replace the memory store for servers with several replicas. (#79)
+- `WithObserver`, which sees every request's start and its outcome with the duration, for metrics without middleware. (#79)
+
 ## [0.1.2] - 2026-11-22
 
 ### Added
