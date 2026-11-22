@@ -11,7 +11,8 @@ const (
 )
 
 // CompleteReference is a prompt reference (Type RefPrompt, Name) or a resource template reference
-// (Type RefResource, URI). One type for both keeps CompleteParams simple; MarshalJSON enforces each shape.
+// (Type RefResource, URI). One type for both keeps CompleteParams simple; MarshalJSON enforces each shape
+// and refuses reference types the spec does not define yet.
 type CompleteReference struct {
 	Type  string `json:"type"`
 	Name  string `json:"name,omitempty"`

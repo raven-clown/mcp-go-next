@@ -33,6 +33,30 @@ func (p LoggingMessageParams) MarshalJSON() ([]byte, error) {
 	return json.Marshal(plain(p))
 }
 
+func (p *LoggingMessageParams) UnmarshalJSON(b []byte) error {
+	type plain LoggingMessageParams
+	if err := requireKeys(b, "data"); err != nil {
+		return err
+	}
+	return json.Unmarshal(b, (*plain)(p))
+}
+
+func (p *ProgressParams) UnmarshalJSON(b []byte) error {
+	type plain ProgressParams
+	if err := requireKeys(b, "progressToken"); err != nil {
+		return err
+	}
+	return json.Unmarshal(b, (*plain)(p))
+}
+
+func (p *CancelledParams) UnmarshalJSON(b []byte) error {
+	type plain CancelledParams
+	if err := requireKeys(b, "requestId"); err != nil {
+		return err
+	}
+	return json.Unmarshal(b, (*plain)(p))
+}
+
 type CancelledParams struct {
 	Meta      Object    `json:"_meta,omitempty"`
 	RequestID RequestID `json:"requestId"`
@@ -46,8 +70,8 @@ type ResourceUpdatedParams struct {
 
 // UnsupportedVersionData is the data of a -32022 error.
 type UnsupportedVersionData struct {
-	Supported []string `json:"supported"`
-	Requested string   `json:"requested"`
+	Supported List[string] `json:"supported"`
+	Requested string       `json:"requested"`
 }
 
 // MissingCapabilityData is the data of a -32021 error.

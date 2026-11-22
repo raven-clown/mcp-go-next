@@ -20,6 +20,18 @@ type ElicitParams struct {
 	URL             string          `json:"url,omitempty"`
 }
 
+// UnmarshalJSON treats "requestedSchema": null as absent, so a decoded url request encodes again.
+func (p *ElicitParams) UnmarshalJSON(b []byte) error {
+	type plain ElicitParams
+	if err := json.Unmarshal(b, (*plain)(p)); err != nil {
+		return err
+	}
+	if bytes.Equal(bytes.TrimSpace(p.RequestedSchema), []byte("null")) {
+		p.RequestedSchema = nil
+	}
+	return nil
+}
+
 // MarshalJSON refuses a request that mixes the two modes or misses what its mode requires.
 func (p ElicitParams) MarshalJSON() ([]byte, error) {
 	type plain ElicitParams

@@ -79,6 +79,52 @@ func TestTokensMustBeStringOrNumber(t *testing.T) {
 	}
 }
 
+func TestRequiredKeysOnDecode(t *testing.T) {
+	bad := []struct {
+		name string
+		in   string
+		v    any
+	}{
+		{"progress without token", `{"progress":1}`, new(ProgressParams)},
+		{"cancelled without request id", `{"reason":"x"}`, new(CancelledParams)},
+		{"log message without data", `{"level":"info"}`, new(LoggingMessageParams)},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := json.Unmarshal([]byte(tt.in), tt.v); err == nil {
+				t.Fatalf("Unmarshal(%s) succeeded", tt.in)
+			}
+		})
+	}
+	var l LoggingMessageParams
+	if err := json.Unmarshal([]byte(`{"level":"info","data":null}`), &l); err != nil {
+		t.Fatalf("null data: %v", err)
+	}
+	out, err := json.Marshal(l)
+	if err != nil {
+		t.Fatalf("null data does not re-encode: %v", err)
+	}
+	assertSameJSON(t, []byte(`{"level":"info","data":null}`), out)
+}
+
+func TestUnsupportedVersionDataNeverNull(t *testing.T) {
+	out, err := json.Marshal(UnsupportedVersionData{Requested: "x"})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	assertSameJSON(t, []byte(`{"supported":[],"requested":"x"}`), out)
+}
+
+func TestElicitNullSchemaReencodes(t *testing.T) {
+	var p ElicitParams
+	if err := json.Unmarshal([]byte(`{"mode":"url","message":"m","url":"https://example.com","requestedSchema":null}`), &p); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if _, err := json.Marshal(p); err != nil {
+		t.Fatalf("a decoded url request does not re-encode: %v", err)
+	}
+}
+
 func TestElicitParamsValidation(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
 	ok := []ElicitParams{

@@ -38,6 +38,21 @@ func (id *RequestID) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// requireKeys reports an error naming the first key that b lacks. UnmarshalJSON is never called for an
+// absent field, so types with required raw fields check presence here.
+func requireKeys(b []byte, keys ...string) error {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	for _, k := range keys {
+		if _, ok := m[k]; !ok {
+			return errors.New(`protocol: "` + k + `" is required`)
+		}
+	}
+	return nil
+}
+
 func validScalar(b []byte) bool {
 	if len(b) == 0 {
 		return false
