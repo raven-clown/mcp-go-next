@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Versions are `v0.<phase>.<n>`: every release in phase 1 of the roadmap is `v0.1.x`.
 
-Each line ends with the pull requests that made the change, such as `(#12)` or `(#12, #15)`. The release notes link them and credit their authors.
+Each line ends with the pull requests that made the change, such as `(#12)` or `(#12, #15)`. The release notes link them and credit their authors. A pre-release tag such as `v0.2.0-rc.1` needs its own section, `## [0.2.0-rc.1]`.
 
 ## [Unreleased]
 
@@ -24,14 +24,14 @@ The first building blocks. There is no server or client yet: this release has th
   - Checked field by field against the official `schema.json`, which is vendored with all 131 official examples.
   - (#68)
 - `protocol` feature types: tools, resources, prompts, completion, discovery, subscriptions, multi round-trip input requests, sampling, elicitation, roots and notifications.
-  - Every official example round-trips.
+  - Every official example round-trips. One example breaks the schema by leaving out `ttlMs` and `cacheScope`; the test notes it, and the types still follow the schema.
   - Required arrays are never written as `null`.
   - Tool blocks may only appear in sampling, so content cannot nest without limit.
   - Tokens and request IDs accept only strings and numbers.
   - (#69)
 - `jsonschema` package, part 1: builds a JSON Schema from Go types.
   - It follows `encoding/json`: tags, omitempty, embedded structs and `,string`.
-  - Pointers, slices and maps accept `null`, so what Go writes always passes its own schema.
+  - Pointers, slices and maps accept `null`, so what Go writes for ordinary types passes its own schema.
   - Recursive types use `$defs`.
   - `jsonschema` tags set descriptions, enums, bounds and patterns.
   - A type can supply its own schema with no reflection.

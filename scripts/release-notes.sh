@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Writes the release notes for a tag to stdout: the tag's CHANGELOG section under "What's Changed",
-# each "(#N, ...)" turned into "by @author in #N, ...", then GitHub's New Contributors and Full
-# Changelog. Needs gh with a token that can read the repository.
+# each trailing "(#N, ...)" turned into "by @author in #N, ..." with every author of those pull
+# requests, then GitHub's New Contributors and Full Changelog. A reference that is not a pull request
+# stops the script, so a release never ships with broken notes. Needs gh with a token that can read
+# the repository.
 #
 # usage: scripts/release-notes.sh v0.1.0 [owner/repo]
 set -euo pipefail
@@ -24,30 +26,45 @@ if [ -z "$(printf '%s' "$section" | tr -d '[:space:]')" ]; then
 	exit 1
 fi
 
+# lookup fills authors[N] in this shell, so failures stop the script and results are cached.
 declare -A authors
-author_of() {
-	local n="$1"
-	if [ -z "${authors[$n]:-}" ]; then
-		authors[$n]="$(gh api "repos/$repo/pulls/$n" --jq .user.login)"
+lookup() {
+	local n="$1" login
+	if [ -n "${authors[$n]:-}" ]; then
+		return 0
 	fi
-	printf '%s' "${authors[$n]}"
+	if ! login="$(gh api "repos/$repo/pulls/$n" --jq .user.login 2>/dev/null)" || [ -z "$login" ]; then
+		echo "release-notes: #$n in CHANGELOG.md is not a pull request in $repo" >&2
+		exit 1
+	fi
+	authors[$n]="$login"
 }
 
-echo "## What's Changed"
-echo
+out="## What's Changed"$'\n\n'
 ref_re='^(.*)\((#[0-9]+(, #[0-9]+)*)\)[[:space:]]*$'
 while IFS= read -r line; do
 	if [[ "$line" =~ $ref_re ]]; then
 		head="${BASH_REMATCH[1]}"
 		refs="${BASH_REMATCH[2]}"
-		first="${refs%%,*}"
-		printf '%sby @%s in %s\n' "$head" "$(author_of "${first#\#}")" "$refs"
+		credited=""
+		for ref in ${refs//,/ }; do
+			n="${ref#\#}"
+			lookup "$n"
+			case " $credited " in
+			*" @${authors[$n]} "*) ;;
+			*) credited="$credited @${authors[$n]}" ;;
+			esac
+		done
+		by="$(printf '%s' "${credited# }" | sed 's/ / and /g')"
+		out+="$(printf '%sby %s in %s' "$head" "$by" "$refs")"$'\n'
 	else
-		printf '%s\n' "$line"
+		out+="$line"$'\n'
 	fi
 done <<<"$section"
+printf '%s' "$out"
 
-previous="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$tag" | head -n 1 || true)"
+# The previous release is the highest tag below this one, not the newest tag overall.
+previous="$( { git tag --list 'v*'; printf '%s\n' "$tag"; } | sort -uV | awk -v t="$tag" '$0 == t { print prev; exit } { prev = $0 }')"
 args=(-f "tag_name=$tag")
 if [ -n "$previous" ]; then
 	args+=(-f "previous_tag_name=$previous")

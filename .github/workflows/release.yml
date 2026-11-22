@@ -18,7 +18,6 @@ jobs:
       contents: write
     env:
       TAG: ${{ github.ref_name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -27,14 +26,20 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+          cache: false
       - name: tag is on main
         run: |
           git fetch --no-tags origin main
-          git merge-base --is-ancestor "$TAG" origin/main
+          git merge-base --is-ancestor "refs/tags/$TAG" origin/main
+      # The test step gets no token, so code under test cannot reach the write token.
       - run: go test ./...
       - name: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/release-notes.sh "$TAG" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/notes.md"
       - name: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
