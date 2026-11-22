@@ -2,6 +2,7 @@ package jsonschema
 
 import (
 	"bytes"
+	"container/heap"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -484,9 +485,31 @@ type run struct {
 	steps    int
 	stopped  bool
 	failures int
-	errs     []error
+	// errs keeps the maxErrors smallest errors by path and message, as a max-heap, so the errors
+	// reported do not depend on map order.
+	errs errHeap
 	// muted counts anyOf branches being tried, whose failures are counted but not reported.
 	muted int
+}
+
+type errHeap []*ValidationError
+
+func errLess(a, b *ValidationError) bool {
+	if a.Path != b.Path {
+		return a.Path < b.Path
+	}
+	return a.Message < b.Message
+}
+
+func (h errHeap) Len() int           { return len(h) }
+func (h errHeap) Less(i, j int) bool { return errLess(h[j], h[i]) }
+func (h errHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *errHeap) Push(x any)        { *h = append(*h, x.(*ValidationError)) }
+func (h *errHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
 }
 
 func (s *compiled) Validate(instance json.RawMessage) error {
@@ -503,31 +526,37 @@ func (s *compiled) Validate(instance json.RawMessage) error {
 		return &ValidationError{Message: fmt.Sprintf("validation stopped after %d steps", s.cfg.maxSteps)}
 	}
 	// Objects are walked in map order, so errors are sorted once here to keep output stable.
-	sort.SliceStable(r.errs, func(i, j int) bool {
-		a, b := r.errs[i].(*ValidationError), r.errs[j].(*ValidationError)
-		if a.Path != b.Path {
-			return a.Path < b.Path
-		}
-		return a.Message < b.Message
-	})
-	if r.failures > len(r.errs) {
-		r.errs = append(r.errs, &ValidationError{Message: fmt.Sprintf("and %d more errors", r.failures-len(r.errs))})
+	sort.Slice(r.errs, func(i, j int) bool { return errLess(r.errs[i], r.errs[j]) })
+	out := make([]error, 0, len(r.errs)+1)
+	for _, e := range r.errs {
+		out = append(out, e)
 	}
-	switch len(r.errs) {
+	if r.failures > len(r.errs) {
+		out = append(out, &ValidationError{Message: fmt.Sprintf("and %d more errors", r.failures-len(r.errs))})
+	}
+	switch len(out) {
 	case 0:
 		return nil
 	case 1:
-		return r.errs[0]
+		return out[0]
 	}
-	return errors.Join(r.errs...)
+	return errors.Join(out...)
 }
 
 func (r *run) fail(p *path, format string, args ...any) {
 	r.failures++
-	if r.muted > 0 || len(r.errs) >= maxErrors {
+	if r.muted > 0 {
 		return
 	}
-	r.errs = append(r.errs, &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)})
+	e := &ValidationError{Path: p.String(), Message: fmt.Sprintf(format, args...)}
+	if len(r.errs) < maxErrors {
+		heap.Push(&r.errs, e)
+		return
+	}
+	if errLess(e, r.errs[0]) {
+		r.errs[0] = e
+		heap.Fix(&r.errs, 0)
+	}
 }
 
 // passes runs n silently and reports whether it added no failure.
@@ -560,10 +589,6 @@ func (r *run) validate(n *node, v any, p *path, depth int) {
 		if !*n.always {
 			r.fail(p, "no value is allowed here")
 		}
-		return
-	}
-	if num, ok := v.(json.Number); ok && len(num) > maxNumberLen {
-		r.fail(p, "number has more than %d characters", maxNumberLen)
 		return
 	}
 	if len(n.types) > 0 && !matchesType(n.types, v) {

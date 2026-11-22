@@ -31,18 +31,19 @@ func TestLongNumbersAreBounded(t *testing.T) {
 	cases := []struct {
 		schema   string
 		instance string
+		valid    bool
 	}{
-		{`{"type":"integer"}`, long},
-		{`{"type":"integer"}`, "0." + long},
-		{`{"enum":[1,2,3,4,5,6,7,8,9,10]}`, long},
-		{`{"minimum":0}`, long},
-		{`{"const":1}`, long},
+		{`{"type":"integer"}`, long, true},
+		{`{"type":"integer"}`, "0." + long, false},
+		{`{"enum":[1,2,3,4,5,6,7,8,9,10]}`, long, false},
+		{`{"minimum":0}`, long, false},
+		{`{"const":1}`, long, false},
 	}
 	for _, c := range cases {
 		s := mustCompile(t, c.schema)
 		within(t, time.Second, func() {
-			if err := s.Validate(json.RawMessage(c.instance)); err == nil {
-				t.Errorf("%s accepted a 1 MiB number", c.schema)
+			if err := s.Validate(json.RawMessage(c.instance)); (err == nil) != c.valid {
+				t.Errorf("%s with a 1 MiB number: err = %v, want valid=%v", c.schema, err, c.valid)
 			}
 		})
 	}
@@ -86,6 +87,41 @@ func TestErrorsAreCapped(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "more") {
 		t.Fatalf("the last error does not say more were left out: %.200s", err)
+	}
+}
+
+func TestCappedErrorsAreStable(t *testing.T) {
+	s := mustCompile(t, `{"additionalProperties":{"type":"integer"}}`)
+	var b strings.Builder
+	b.WriteString("{")
+	for i := 0; i < 300; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`"k` + strings.Repeat("x", i%7) + string(rune('a'+i%26)) + `` + `` + `":"no"`)
+	}
+	b.WriteString("}")
+	first := s.Validate(json.RawMessage(b.String())).Error()
+	for i := 0; i < 20; i++ {
+		if got := s.Validate(json.RawMessage(b.String())).Error(); got != first {
+			t.Fatalf("run %d reported different errors", i)
+		}
+	}
+}
+
+func TestLongNumberAllowedWhereAnythingIs(t *testing.T) {
+	long := strings.Repeat("9", 5000)
+	for _, schema := range []string{`{}`, `true`, `{"properties":{"raw":{}}}`, `{"type":"number"}`, `{"type":"integer"}`} {
+		in := long
+		if strings.Contains(schema, "raw") {
+			in = `{"raw":` + long + `}`
+		}
+		if err := mustCompile(t, schema).Validate(json.RawMessage(in)); err != nil {
+			t.Errorf("%s rejected a long number: %v", schema, err)
+		}
+	}
+	if err := mustCompile(t, `{"maximum":10}`).Validate(json.RawMessage(long)); err == nil {
+		t.Error("a long number passed a numeric bound")
 	}
 }
 
