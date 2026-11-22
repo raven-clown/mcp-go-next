@@ -8,6 +8,14 @@ Each line ends with the pull requests that made the change, such as `(#12)` or `
 
 ## [Unreleased]
 
+### Changed
+
+- `jsonrpc.Decode` reads the envelope in one pass and copies only the fields it keeps. A small `tools/call` decodes in about 1 µs with 10 allocations, down from 2 µs. A 1 MiB request decodes in about 1.1 ms, down from 1.5 ms, now ahead of mark3labs/mcp-go. (#75)
+
+### Added
+
+- `docs/benchmarks.md` compares mcp-go-next with mark3labs/mcp-go and the official go-sdk on the same inputs. It covers decoding, validating, compiling and inferring schemas, and lists where mcp-go-next does not win. The comparison code is in `bench/`, a separate module, and runs with `make bench-compare`. (#75)
+
 ## [0.1.0] - 2026-11-22
 
 The first building blocks. There is no server or client yet: this release has the wire format, the protocol types and JSON Schema support that the server and client are built on.

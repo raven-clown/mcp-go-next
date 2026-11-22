@@ -25,7 +25,7 @@ The design starts from what people building MCP servers in Go ran into with toda
 - A gateway package for aggregating upstream servers
 - Extensions such as tasks, skills and apps
 
-See [docs/design.md](docs/design.md) for the design and [docs/plans](docs/plans) for the roadmap and implementation plans.
+See [docs/design.md](docs/design.md) for the design, [docs/plans](docs/plans) for the roadmap and implementation plans, and [docs/benchmarks.md](docs/benchmarks.md) for measurements against mark3labs/mcp-go and the official go-sdk.
 
 ## Contributing
 

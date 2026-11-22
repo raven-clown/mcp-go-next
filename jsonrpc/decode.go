@@ -3,7 +3,6 @@ package jsonrpc
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 )
 
 var null = []byte("null")
@@ -16,19 +15,15 @@ func invalid(reason string) *Error {
 
 // Decode reads one message in a single pass. The error is always a *Error, ready to send back.
 // Keys are matched exactly, unlike encoding/json struct fields, so "Method" is not "method".
+// The returned Message holds copies, never slices of b.
 func Decode(b []byte) (*Message, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(b, &fields); err != nil {
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
-			if t := bytes.TrimSpace(b); len(t) > 0 && t[0] == '[' {
-				return nil, invalid("batches are not supported")
-			}
-			return nil, invalid("a message must be a JSON object")
-		}
+	fields, res := scanEnvelope(b)
+	switch res {
+	case scanSyntax:
 		return nil, parseError()
-	}
-	if fields == nil {
+	case scanBatch:
+		return nil, invalid("batches are not supported")
+	case scanNotObject:
 		return nil, invalid("a message must be a JSON object")
 	}
 
@@ -44,7 +39,7 @@ func Decode(b []byte) (*Message, error) {
 		if !validID(rawID) {
 			return nil, invalid("id must be a string or a number")
 		}
-		m.ID = ID{raw: rawID}
+		m.ID = ID{raw: bytes.Clone(rawID)}
 	}
 
 	rawMethod, hasMethod := fields["method"]
@@ -65,7 +60,7 @@ func Decode(b []byte) (*Message, error) {
 			if len(params) == 0 || (params[0] != '{' && params[0] != '[') {
 				return nil, invalid("params must be an object or an array")
 			}
-			m.Params = params
+			m.Params = bytes.Clone(params)
 		}
 		return m, nil
 	}
@@ -77,7 +72,7 @@ func Decode(b []byte) (*Message, error) {
 		if m.ID.IsZero() {
 			return nil, invalid("a result needs an id")
 		}
-		m.Result = result
+		m.Result = bytes.Clone(result)
 	case hasError:
 		e, ok := decodeError(rawError)
 		if !ok {
