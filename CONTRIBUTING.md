@@ -4,7 +4,7 @@ Thanks for wanting to help. Bug reports, ideas, docs fixes and code are all welc
 
 ## Before you start
 
-- Look through the [open issues](https://github.com/raven-clown/mcp-go-next/issues) and the roadmap board first. Every task in the plan has an issue. Issues labelled `good first issue` are small and well scoped, and `help wanted` marks work nobody has picked up yet.
+- Look through the [open issues](https://github.com/raven-clown/mcp-go-next/issues) and the [roadmap board](https://github.com/users/raven-clown/projects/9) first. Every task in the plan has an issue. Issues labelled `good first issue` are small and well scoped, and `help wanted` marks work nobody has picked up yet.
 - `docs/spec-coverage.md` (added with the first release) shows which parts of the MCP spec are done and which are open.
 - For anything bigger than a small fix, comment on the issue or open a discussion before writing code, so we agree on the approach first.
 - Say on the issue that you are working on it, so two people do not do the same work.
