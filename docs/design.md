@@ -304,7 +304,7 @@ type Principal struct {
 }
 ```
 
-The owner key of a principal is `Issuer + " " + Subject`. A request without a principal has the empty owner, which is what local stdio servers get.
+The owner key of a principal is the issuer's length, a colon, the issuer, a space and the subject, such as `19:https://idp.example alice`. The length keeps two principals from sharing a key when an issuer has a space in it. A request without a principal has the empty owner, which is what local stdio servers get.
 
 The envelope and `_meta` are decoded once. Params stay raw until a handler asks for them.
 
@@ -363,10 +363,10 @@ Each registry snapshot keeps the encoded `tools/list` pages per toolset combinat
 
 ```go
 carts := mcp.NewHandles[Cart](mcp.HandleTTL(30*time.Minute), mcp.HandleLimit(10_000), mcp.OnExpire(releaseCart))
-id, err := carts.Create(req, cart)
-cart, err := carts.Get(req, id)
-err = carts.Update(req, id, cart)
-err = carts.Delete(req, id)
+id, err := carts.Create(ctx, req, cart)
+cart, err := carts.Get(ctx, req, id)
+err = carts.Update(ctx, req, id, cart)
+err = carts.Delete(ctx, req, id)
 ```
 
 - An ID is 128 random bits, base64url encoded.
@@ -382,7 +382,7 @@ type HandleStore interface {
 }
 ```
 
-  Values are JSON encoded for every store. The cookbook has a Redis example outside the core module.
+  Values are JSON encoded for every store. `Update` keeps the deadline `Create` set: it calls `Put` with ttl 0, which replaces the value of an existing entry only, like `SET XX KEEPTTL` in Redis. The cookbook has a Redis example outside the core module.
 
 ### Cache scope
 

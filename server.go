@@ -25,6 +25,7 @@ type serverConfig struct {
 	pageSize     int
 	validator    jsonschema.Validator
 	extensions   map[string]protocol.Object
+	observers    []Observer
 }
 
 type ServerOption func(*serverConfig)
@@ -159,7 +160,24 @@ func (s *Server) dispatch(ctx context.Context, req *Request) (protocol.Result, e
 
 // Handle checks the protocol version, runs the middleware and the method handler, and fills in
 // resultType, server info and cache fields. Panics become internal errors and are logged.
-func (s *Server) Handle(ctx context.Context, req *Request) (res protocol.Result, err error) {
+// Observers see the request before all of that and the outcome after it.
+func (s *Server) Handle(ctx context.Context, req *Request) (protocol.Result, error) {
+	if len(s.cfg.observers) == 0 {
+		return s.serve(ctx, req)
+	}
+	start := time.Now()
+	for _, o := range s.cfg.observers {
+		o.OnStart(ctx, req)
+	}
+	res, err := s.serve(ctx, req)
+	d := time.Since(start)
+	for _, o := range s.cfg.observers {
+		o.OnEnd(ctx, req, res, err, d)
+	}
+	return res, err
+}
+
+func (s *Server) serve(ctx context.Context, req *Request) (res protocol.Result, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			s.logError(fmt.Errorf("mcp: panic serving %s: %v\n%s", req.Method, p, debug.Stack()))
