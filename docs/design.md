@@ -237,7 +237,7 @@ mcpkit shows that conformance alone does not draw users. The focus here is the p
 
 ## Module and packages
 
-Module path `github.com/raven-clown/mcp-go-next`. The root package is named `mcp`. Supported Go versions are the two latest releases (1.26 and 1.27 today).
+Module path `github.com/raven-clown/mcp-go-next`. The root package is named `mcp`. mcp-go-next targets the latest Go release only (1.27.4 today). `go.mod` names it, CI reads it from there, and a `chore/` pull request bumps it after each Go release.
 
 | Package | Purpose |
 |---|---|
@@ -571,7 +571,7 @@ srv.Mount(gw)
 
 ### CI
 
-- `test`: ubuntu, macos and windows with Go 1.26 and 1.27, `-race`
+- `test`: ubuntu, macos and windows with the Go version from `go.mod`, `-race`
 - `lint`, `vuln`, `coverage`
 - `conformance`
 - `interop` from phase 3

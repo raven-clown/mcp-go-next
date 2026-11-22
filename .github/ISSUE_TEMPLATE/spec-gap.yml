@@ -1,0 +1,38 @@
+name: Spec gap
+description: mcp-go-next does not follow the MCP specification somewhere
+labels: ["spec"]
+body:
+  - type: input
+    id: section
+    attributes:
+      label: Spec section
+      description: A link to the section of the specification.
+      placeholder: https://modelcontextprotocol.io/specification/2026-07-28/...
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Protocol revision
+      placeholder: 2026-07-28
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What mcp-go-next does today, with a message or test that shows it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the spec requires
+      description: Quote the requirement (MUST, SHOULD) and say how the behavior differs.
+    validations:
+      required: true
+  - type: input
+    id: conformance
+    attributes:
+      label: Conformance scenario
+      description: The name of a failing scenario in the official conformance suite, if there is one.
